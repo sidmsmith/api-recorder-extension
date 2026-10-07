@@ -292,14 +292,35 @@ function scheduleShot(tabId, actionT) {
 // "Before" pictures: only when you typed or pasted since the last picture,
 // taken as soon as the typing pauses (so the value is visible in the field),
 // and given to the step that follows (the GO / Enter that submits it).
+// Screenshot with other tools' overlays (Claude in Chrome's glow border and
+// cursor) hidden for the moment of the capture. A counter in the page keeps
+// overlapping captures from showing them again too early.
+async function capture(s, tabId) {
+  const sel = s.settings.hideOverlays && (s.settings.overlaySelectors || '').trim();
+  const run = (expression) => chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression }).catch(() => {});
+  if (sel) {
+    await run(`(() => { const w = window; w.__apiRecorderHide = (w.__apiRecorderHide || 0) + 1;
+      if (!document.getElementById('__apiRecorderHide')) { const st = document.createElement('style'); st.id = '__apiRecorderHide';
+        st.textContent = ${JSON.stringify(sel)} + ' { visibility: hidden !important; }'; (document.head || document.documentElement).appendChild(st); } })()`);
+  }
+  try {
+    const r = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'jpeg', quality: 60 });
+    return r?.data || null;
+  } finally {
+    if (sel) {
+      await run(`(() => { const w = window; w.__apiRecorderHide = Math.max(0, (w.__apiRecorderHide || 1) - 1);
+        if (!w.__apiRecorderHide) document.getElementById('__apiRecorderHide')?.remove(); })()`);
+    }
+  }
+}
+
 function takeBefore(tabId) {
   const s = session;
   if (!s?.scenario || !s.settings.screenshots) return;
-  const capture = chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'jpeg', quality: 60 })
-    .then((r) => r?.data || null, () => null);
-  s.pendingBefore.set(tabId, capture);
-  s.pending.add(capture);
-  capture.finally(() => s.pending.delete(capture));
+  const shot = capture(s, tabId).catch(() => null);
+  s.pendingBefore.set(tabId, shot);
+  s.pending.add(shot);
+  shot.finally(() => s.pending.delete(shot));
 }
 
 function claimBefore(tabId, actionT) {
@@ -313,8 +334,8 @@ function claimBefore(tabId, actionT) {
 }
 
 function takeShot(s, tabId, t) {
-  const job = chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'jpeg', quality: 60 })
-    .then((r) => { if (r?.data) s.shots.push({ tabId, t, data: r.data }); })
+  const job = capture(s, tabId)
+    .then((data) => { if (data) s.shots.push({ tabId, t, data }); })
     .catch(() => { /* tab closed or hidden */ });
   s.pending.add(job);
   job.finally(() => s.pending.delete(job));

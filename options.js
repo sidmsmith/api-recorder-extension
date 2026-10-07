@@ -8,8 +8,8 @@ async function load() {
   const { settings: stored } = await chrome.storage.local.get('settings');
   settings = { ...DEFAULT_SETTINGS, ...(stored || {}) };
   document.querySelector(`input[name=scope][value=${settings.scope}]`).checked = true;
-  for (const id of ['include', 'exclude', 'filename', 'alwaysShow', 'alwaysHide', 'scenarioFolder']) $(id).value = settings[id];
-  for (const id of ['skipUi', 'followTabs', 'bodies', 'redact', 'outputHar', 'outputSummary', 'trackClicks', 'relevantOnly', 'scenarioMode', 'screenshots']) $(id).checked = settings[id];
+  for (const id of ['include', 'exclude', 'filename', 'alwaysShow', 'alwaysHide', 'scenarioFolder', 'overlaySelectors']) $(id).value = settings[id];
+  for (const id of ['skipUi', 'followTabs', 'bodies', 'redact', 'outputHar', 'outputSummary', 'trackClicks', 'relevantOnly', 'scenarioMode', 'screenshots', 'hideOverlays']) $(id).checked = settings[id];
   $('summaryLines').value = settings.summaryLines;
   $('uiPatterns').textContent = UI_PATTERNS.split('\n').join('  ');
   $('maxBodyKB').value = settings.maxBodyKB;
@@ -34,6 +34,8 @@ async function save() {
     filename: $('filename').value.trim() || DEFAULT_SETTINGS.filename,
     scenarioMode: $('scenarioMode').checked,
     screenshots: $('screenshots').checked,
+    hideOverlays: $('hideOverlays').checked,
+    overlaySelectors: $('overlaySelectors').value.trim(),
     scenarioFolder: $('scenarioFolder').value.trim().replace(/[\\:*?"<>|]+/g, '_').replace(/^\/+|\/+$/g, '') || DEFAULT_SETTINGS.scenarioFolder,
     trackClicks: $('trackClicks').checked,
     relevantOnly: $('relevantOnly').checked,

@@ -39,7 +39,10 @@ panel instead of starting at once:
    screenshot after each step (`step-01-2-after.jpg`, … – option, on), plus a
    "before" picture with your value in the field when you typed or pasted
    something for that step (`step-04-1-before.jpg`). The names keep the
-   pictures in order in any file list or image viewer.
+   pictures in order in any file list or image viewer. Other tools' overlays
+   (by default Claude in Chrome's glowing border and cursor) are hidden for
+   the moment each picture is taken (option, on; the elements are listed in
+   Options).
 
 What a recording notes about you: clicks (the button or menu text, plus
 what was clicked – element, id, classes – for a later replay), Enter in a
