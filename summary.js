@@ -34,6 +34,8 @@ function span(ms) {
 function stepText(st) {
   if (st.kind === 'enter') return `Pressed Enter in “${st.label || 'a field'}”${st.value ? ` (${st.value})` : ''}`;
   if (st.kind === 'load') return `Opened “${st.screen || 'a page'}”`;
+  if (st.kind === 'key') return `Pressed ${st.label || 'a key'}`;
+  if (st.kind === 'start') return 'Recording started';
   return `Clicked “${st.label || 'something'}”`;
 }
 
@@ -81,7 +83,15 @@ function buildSummaryHtml(har, meta) {
         ?? (e.response.content.comment || (err ? `(no response: ${err})` : null)),
     };
   });
-  const steps = (har.log._steps || []).map((st) => ({ n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '' }));
+  const shots = meta.shots || {};
+  const steps = (har.log._steps || []).map((st) => ({
+    n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '',
+    inputs: (st.inputs || []).map((x) => ({ label: x.label, value: x.value })),
+    checkpoints: (st.checkpoints || []).map((c) => ({ text: c.text, time: clock(new Date(c.t)) })),
+    ...(shots[st.n] ? { shot: `data:image/jpeg;base64,${shots[st.n]}` } : {}),
+  }));
+  const scenario = meta.scenario || har.log._scenario || null;
+  const TIER_NAMES = { gold: 'Gold / Base', standard: 'Standard', custom: 'Custom' };
   const hosts = [...new Set(entries.map((e) => { try { return new URL(e.request.url).host; } catch { return ''; } }).filter(Boolean))];
   const bad = (c) => c.status >= 400 || c.status === 0;
   const relevant = calls.filter((c) => c.cat === 'data');
@@ -96,6 +106,8 @@ function buildSummaryHtml(har, meta) {
   ].filter((x) => x.name).sort((a, b) => a.t - b.t).map((x) => x.name))];
   const rows = [
     ['Site', `${hosts.join(', ') || '–'}${user ? ` · user ${user}` : ''}`],
+    ...(scenario ? [['Scenario', [TIER_NAMES[scenario.tier] || scenario.tier, scenario.area, scenario.customer ? `customer ${scenario.customer}` : ''].filter(Boolean).join(' · ')]] : []),
+    ...(scenario?.notes ? [['Notes', scenario.notes]] : []),
     ['Recorded', `${day(start)} · ${clock(start)} – ${clock(end)} (${span(meta.endedAt - meta.startedAt)})`],
     ['Screens', (screens.length ? screens : pages.map((p) => p.title)).join(' → ') || '–'],
     ...(meta.harName ? [['Full HAR', meta.harName]] : []),
@@ -150,6 +162,18 @@ function buildSummaryHtml(har, meta) {
   .cat { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 0 7px; margin-left: 6px; font-family: system-ui, sans-serif; }
   .more { display: block; width: 100%; text-align: left; margin: 0 0 6px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 8px; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12.5px; }
   .more:hover { color: var(--accent); border-color: var(--accent); }
+  .tier { font-size: 12px; font-weight: 700; vertical-align: middle; border-radius: 10px; padding: 2px 10px; margin-left: 6px; border: 1px solid var(--line); color: var(--muted); }
+  .tier.gold { background: #fbbc04; border-color: #fbbc04; color: #202124; }
+  .tier.standard { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+  .tier.custom { background: #a142f4; border-color: #a142f4; color: #fff; }
+  .inputs { margin: -2px 0 6px 2px; font-size: 12.5px; color: var(--muted); }
+  .inputs b { color: var(--text); font-weight: 600; }
+  .check { margin: 2px 0 8px 2px; font-size: 13px; color: var(--ok); font-weight: 600; }
+  .shot { margin: 2px 0 10px 2px; }
+  .shot img { max-width: 220px; max-height: 160px; border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in; display: block; }
+  .shot span { font-size: 11.5px; color: var(--muted); }
+  #lightbox { position: fixed; inset: 0; background: rgba(0, 0, 0, .75); display: flex; align-items: center; justify-content: center; cursor: zoom-out; z-index: 10; }
+  #lightbox img { max-width: 94vw; max-height: 94vh; border-radius: 6px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
   .body { display: none; border-top: 1px solid var(--line); padding: 10px 12px 14px; }
   .call.open .body { display: block; }
   .url { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--muted); word-break: break-all; margin-bottom: 8px; }
@@ -168,7 +192,7 @@ function buildSummaryHtml(har, meta) {
 </head>
 <body>
 <main>
-  <h1>API Recorder summary</h1>
+  <h1>${scenario ? `${escHtml(scenario.name)} <span class="tier ${escHtml(scenario.tier || '')}">${escHtml(TIER_NAMES[scenario.tier] || scenario.tier || '')}</span>` : 'API Recorder summary'}</h1>
   <table class="info">${rows.map(([k, v]) => `<tr><th>${escHtml(k)}</th><td>${escHtml(v)}</td></tr>`).join('')}</table>
   <div class="stats">
     <div class="stat"><b>${relevant.length}</b>relevant</div>
@@ -219,18 +243,13 @@ function reportScript() {
     <div class="body"><div class="url">${esc(c.url)}${c.screen ? ` · ${esc(c.screen)}` : ''}${c.statusText ? ` · ${esc(c.statusText)}` : ''}</div>
     <div class="panes">${pane('Payload', c.payload, `${i}:p`)}${pane('Response', c.response, `${i}:r`)}</div></div></div>`;
 
-  // Groups: one per step that has calls (step 0 = before your first click).
+  // Groups: calls before your first step, then one per step (in order).
   const groups = [];
-  const byStep = new Map();
-  calls.forEach((c, i) => {
-    if (!byStep.has(c.step)) {
-      const st = steps.find((s) => s.n === c.step);
-      const g = { step: c.step, head: st ? st : (steps.length ? { n: 0, text: 'Before your first click', time: c.time } : null), items: [] };
-      byStep.set(c.step, g);
-      groups.push(g);
-    }
-    byStep.get(c.step).items.push(i);
-  });
+  const before = calls.map((c, i) => i).filter((i) => !steps.some((st) => st.n === calls[i].step));
+  if (before.length) groups.push({ step: 0, head: steps.length ? { n: 0, text: 'Before your first click', time: calls[before[0]].time } : null, items: before });
+  for (const st of steps) groups.push({ step: st.n, head: st, items: calls.map((c, i) => i).filter((i) => calls[i].step === st.n) });
+  // Typed values, checkpoints and the screenshot make a step worth showing even without API calls.
+  const extras = (g) => Boolean(g.head && (g.head.inputs?.length || g.head.checkpoints?.length || g.head.shot));
 
   const list = document.getElementById('list');
   // One width for the screen column (the longest name, up to 150 px) so the endpoints line up.
@@ -242,12 +261,16 @@ function reportScript() {
   ruler.remove();
   list.style.setProperty('--tabw', `${Math.min(150, tabWidth + 2)}px`);
 
-  list.innerHTML = calls.length ? groups.map((g, gi) => {
-    const head = g.head ? `<div class="stephead" data-g="${gi}"><span class="sn">${g.head.n ? `STEP ${g.head.n}` : 'START'}</span><b>${esc(g.head.text)}</b><span class="st">${g.head.time}${g.head.screen ? ` · ${esc(g.head.screen)}` : ''}</span></div>` : '';
+  list.innerHTML = groups.length ? groups.map((g, gi) => {
+    const h = g.head;
+    const head = h ? `<div class="stephead" data-g="${gi}"><span class="sn">${h.n ? `STEP ${h.n}` : 'START'}</span><b>${esc(h.text)}</b><span class="st">${h.time}${h.screen ? ` · ${esc(h.screen)}` : ''}</span></div>` : '';
+    const inputs = h?.inputs?.length ? `<div class="inputs">Entered: ${h.inputs.map((x) => `${esc(x.label)} = <b>${esc(x.value || '(hidden)')}</b>`).join(' · ')}</div>` : '';
     // Every call in time order; lookups are folded in place while "relevant only" is on.
     const rows = g.items.map((i) => row(calls[i], i)).join('');
     const more = g.items.some((i) => calls[i].cat === 'lookup') ? `<button class="more" data-more="${gi}"></button>` : '';
-    return `<section data-g="${gi}">${head}${rows}${more}</section>`;
+    const checks = (h?.checkpoints || []).map((c) => `<div class="check">✔ Checkpoint: ${esc(c.text)} <span class="st">${c.time}</span></div>`).join('');
+    const shot = h?.shot ? `<div class="shot"><img src="${h.shot}" alt="Screen after step ${h.n}" data-zoom="1"><span>Screen after this step</span></div>` : '';
+    return `<section data-g="${gi}">${head}${inputs}${rows}${more}${checks}${shot}</section>`;
   }).join('') : '<div class="empty">No API calls were recorded.</div>';
 
   const relevantBox = document.getElementById('relevant');
@@ -279,7 +302,11 @@ function reportScript() {
         more.textContent = `${openLookups.has(gi) ? '−' : '+'} ${lk.length} supporting lookup${lk.length === 1 ? '' : 's'} (reference data)`;
         if (relOnly && lk.length) any = true;
       }
-      section.hidden = !any;
+      // Searching or "errors only": just the steps with matching calls. Otherwise
+      // a step also shows for its typed values, checkpoints or screenshot (and
+      // every step shows while "relevant only" is off).
+      const filtering = errorsOnly || q;
+      section.hidden = !(any || (!filtering && (extras(g) || (!relOnly && g.head))));
     });
     document.getElementById('count').textContent = `Showing ${shown} of ${calls.length} calls${relOnly ? ' · background calls hidden' : ''}`;
   };
@@ -289,6 +316,15 @@ function reportScript() {
     if (copy) {
       const [i, k] = copy.dataset.copy.split(':');
       navigator.clipboard.writeText(k === 'p' ? calls[i].payload : calls[i].response).then(() => { copy.textContent = 'Copied'; });
+      return;
+    }
+    const zoom = e.target.closest('[data-zoom]');
+    if (zoom) {
+      const box = document.createElement('div');
+      box.id = 'lightbox';
+      box.innerHTML = `<img src="${zoom.src}" alt="">`;
+      box.onclick = () => box.remove();
+      document.body.append(box);
       return;
     }
     const more = e.target.closest('[data-more]');

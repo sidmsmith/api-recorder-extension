@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>API Recorder</title>
+<style>
+  :root { color-scheme: light dark; --bg: #ffffff; --text: #202124; --muted: #5f6368; --line: #dadce0; --field: #f6f7f9; --accent: #1a73e8; --red: #d93025; --green: #188038; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #222327; --text: #e6e6e6; --muted: #a8abb2; --line: #44464d; --field: #1b1c20; } }
+  body { margin: 0; width: 320px; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; }
+  main { padding: 14px 16px 16px; }
+  h1 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  h1 img { width: 18px; height: 18px; }
+  label { display: block; font-weight: 600; margin: 8px 0 3px; }
+  input, select, textarea { width: 100%; box-sizing: border-box; font: inherit; color: inherit; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  textarea { resize: vertical; min-height: 44px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button { font: inherit; font-weight: 600; border-radius: 6px; padding: 8px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--field); color: inherit; }
+  button.primary { width: 100%; margin-top: 12px; background: var(--red); border-color: var(--red); color: #fff; }
+  button.primary.stop { background: var(--text); border-color: var(--text); color: var(--bg); }
+  .hint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+  .err { color: var(--red); font-weight: 600; margin-top: 8px; }
+  .rec { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--red); }
+  .rec::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--red); animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .3; } }
+  .name { font-size: 15px; font-weight: 700; margin: 8px 0 2px; }
+  .meta { color: var(--muted); }
+  .counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0; text-align: center; }
+  .counts div { border: 1px solid var(--line); border-radius: 6px; padding: 6px 0; }
+  .counts b { display: block; font-size: 16px; }
+  .cp { display: flex; gap: 6px; }
+  .cp button { white-space: nowrap; }
+  .ok { color: var(--green); font-weight: 600; margin-top: 6px; min-height: 16px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1><img src="icons/icon32.png" alt="">API Recorder</h1>
+
+  <form id="startForm" hidden>
+    <label for="name">Scenario name</label>
+    <input id="name" required maxlength="80" placeholder="e.g. Blind Receipt – create ASN" autocomplete="off">
+    <div class="row">
+      <div>
+        <label for="tier">Tier</label>
+        <select id="tier">
+          <option value="gold">Gold / Base</option>
+          <option value="standard">Standard</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div>
+        <label for="area">Area</label>
+        <input id="area" list="areas" maxlength="40" placeholder="Receiving">
+        <datalist id="areas">
+          <option>Receiving</option><option>Putaway</option><option>Inventory</option><option>Replenishment</option>
+          <option>Picking</option><option>Packing</option><option>Shipping</option><option>Cycle Count</option>
+          <option>Configuration</option><option>Other</option>
+        </datalist>
+      </div>
+    </div>
+    <div id="customerRow" hidden>
+      <label for="customer">Customer</label>
+      <input id="customer" maxlength="60" placeholder="Customer name">
+    </div>
+    <label for="notes">Notes <span class="meta">(optional)</span></label>
+    <textarea id="notes" maxlength="500" placeholder="What this scenario shows, starting point…"></textarea>
+    <button type="submit" class="primary">● Start recording</button>
+    <p class="hint">Records this tab (and tabs it opens) until you stop. Files go to Downloads\<span id="folder"></span>.</p>
+    <div class="err" id="err"></div>
+  </form>
+
+  <section id="recording" hidden>
+    <div class="rec">Recording <span id="elapsed"></span></div>
+    <div class="name" id="recName"></div>
+    <div class="meta" id="recMeta"></div>
+    <div class="counts">
+      <div><b id="steps">0</b>steps</div>
+      <div><b id="calls">0</b>calls</div>
+      <div><b id="checks">0</b>checkpoints</div>
+    </div>
+    <label for="cpText">Checkpoint</label>
+    <div class="cp">
+      <input id="cpText" maxlength="200" placeholder="e.g. ASN created, status Received">
+      <button id="cpAdd" type="button">Add</button>
+    </div>
+    <div class="ok" id="cpOk"></div>
+    <button id="stop" class="primary stop" type="button">■ Stop &amp; save</button>
+  </section>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

@@ -48,10 +48,10 @@ function flash(text, title) {
 
 // ---- recording -------------------------------------------------------------
 
-async function start(tab) {
-  if (!/^https?:/i.test(tab.url || '')) {
+async function start(tab, scenario = null) {
+  if (!/^https?:/i.test(tab?.url || '')) {
     flash('!', "API Recorder: this page can't be recorded (only http/https pages)");
-    return;
+    return "This page can't be recorded (only http/https pages).";
   }
   session = {
     rootTabId: tab.id,
@@ -64,6 +64,9 @@ async function start(tab) {
     following: new Set(), // new tabs being attached
     actions: [],          // your clicks / Enter / screen changes (summary steps)
     screens: new Map(),   // tabId -> the screen's current title
+    scenario,             // { name, tier, area, customer, notes } in scenario mode
+    shots: [],            // screenshots: { tabId, t (the step's action), data }
+    shotTimers: new Map(), // tabId -> the step waiting for its screenshot
     settings: await getSettings(),
     startedAt: Date.now(),
   };
@@ -72,12 +75,13 @@ async function start(tab) {
   } catch (e) {
     session = null;
     flash('!', `API Recorder: couldn't start recording (${e.message || e})`);
-    return;
+    return `Couldn't start recording: ${e.message || e}`;
   }
   // The service worker must stay awake while recording: quiet periods would
   // otherwise let Chrome stop it and lose what was captured.
   keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
   showBadge();
+  return null;
 }
 
 async function attach(tab) {
@@ -91,10 +95,11 @@ async function attach(tab) {
 }
 
 // ---- your actions (for the summary's steps) ---------------------------------
-// A small listener in the recorded page reports clicks, Enter and screen
-// changes through a debugger binding. It reads labels (button text, field
-// names) and the value of a field you press Enter in, never password-like
-// fields. Installed for the current page and every page loaded afterwards.
+// A small listener in the recorded page reports what you do through a
+// debugger binding: clicks (with a fingerprint of what was clicked, for a
+// later UI replay), Enter and shortcut keys, values you typed into fields,
+// and screen changes. Password-like fields are never read. Installed for the
+// current page and every page loaded afterwards.
 
 const BINDING = '__apiRecorderAction';
 
@@ -104,23 +109,64 @@ function pageTracker() {
   const report = (o) => {
     try { window.__apiRecorderAction(JSON.stringify({ ...o, t: Date.now(), title: document.title })); } catch (e) { /* binding gone */ }
   };
-  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const clean = (s, n = 60) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
   const CLICKABLE = 'button, a, [role=button], [role=menuitem], [role=tab], [role=option], [role=row], [role=gridcell], ion-item, ion-button, mat-option, li, tr, td, label, summary, input, select';
   const labelOf = (el) => clean(el.getAttribute('aria-label') || el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || el.tagName.toLowerCase());
+  const isSecret = (el, label) => el.type === 'password' || /pass|pin|secret|token/i.test(`${label} ${el.name || ''} ${el.id || ''}`);
+  // A field's label: <label for>, aria-label, placeholder, name, or the label text of its form row.
+  const fieldLabel = (el) => clean(
+    el.labels?.[0]?.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder')
+    || el.closest('ion-item, mat-form-field, .form-group, .field, tr')?.querySelector('ion-label, label, mat-label, th')?.innerText
+    || el.getAttribute('name') || el.id || el.tagName.toLowerCase());
+  // What was clicked, for finding it again later.
+  const describe = (el) => ({
+    tag: el.tagName.toLowerCase(),
+    ...(el.id ? { id: el.id } : {}),
+    ...(el.getAttribute('name') ? { name: el.getAttribute('name') } : {}),
+    ...(el.getAttribute('role') ? { role: el.getAttribute('role') } : {}),
+    ...(el.classList.length ? { classes: [...el.classList].slice(0, 4).join(' ') } : {}),
+    text: clean(el.innerText || el.textContent, 80),
+    path: (() => {
+      const parts = [];
+      for (let n = el.parentElement, k = 0; n && k < 4; n = n.parentElement, k++) {
+        parts.push(n.tagName.toLowerCase() + (n.id ? `#${n.id}` : '') + (n.classList.length ? `.${[...n.classList].slice(0, 2).join('.')}` : ''));
+      }
+      return parts.join(' < ');
+    })(),
+  });
   addEventListener('click', (e) => {
     const path = e.composedPath().filter((n) => n instanceof Element);
     const el = path.find((n) => n.matches(CLICKABLE)) || path[0];
-    // Clicking into a text box only places the cursor: Enter there is the step.
+    // Clicking into a text box only places the cursor: Enter or the typed value is the step.
     if (!el || (el.matches('textarea, input') && !/^(button|submit|checkbox|radio|reset|image|file|color|range)$/i.test(el.type))) return;
-    report({ kind: 'click', label: labelOf(el) });
+    report({ kind: 'click', label: labelOf(el), target: describe(el) });
+  }, true);
+  // Field values: remember the value when a field gets focus, report it when you leave if it changed.
+  const before = new WeakMap();
+  const fieldOf = (e) => e.composedPath().find((n) => n instanceof Element && n.matches('input, textarea, select'));
+  addEventListener('focusin', (e) => { const el = fieldOf(e); if (el) before.set(el, el.value); }, true);
+  addEventListener('focusout', (e) => {
+    const el = fieldOf(e);
+    if (!el || before.get(el) === el.value || /^(button|submit|checkbox|radio|reset|image|file)$/i.test(el.type)) return;
+    const label = fieldLabel(el);
+    before.set(el, el.value);
+    report({ kind: 'input', label, value: isSecret(el, label) ? '' : clean(el.value, 40) });
   }, true);
   addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
-    const el = e.composedPath().find((n) => n instanceof Element && n.matches('input, textarea, select')) || e.composedPath()[0];
-    if (!(el instanceof Element)) return;
-    const field = clean(el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name') || el.id || el.tagName.toLowerCase());
-    const secret = el.type === 'password' || /pass|pin|secret|token/i.test(field);
-    report({ kind: 'enter', label: field, value: secret ? '' : clean(el.value).slice(0, 40) });
+    if (e.key === 'Enter') {
+      const el = fieldOf(e) || e.composedPath()[0];
+      if (!(el instanceof Element)) return;
+      const label = fieldLabel(el);
+      before.set(el, el.value);
+      report({ kind: 'enter', label, value: isSecret(el, label) ? '' : clean(el.value, 40) });
+      return;
+    }
+    // Function keys and shortcuts (Ctrl/Alt + key) are steps too.
+    const fkey = /^F([1-9]|1[0-2])$/.test(e.key);
+    if (fkey || ((e.ctrlKey || e.altKey) && e.key.length === 1)) {
+      const combo = `${e.ctrlKey ? 'Ctrl+' : ''}${e.altKey ? 'Alt+' : ''}${e.shiftKey ? 'Shift+' : ''}${fkey ? e.key : e.key.toUpperCase()}`;
+      if (!/^Ctrl\+[CVXAZ]$/.test(combo)) report({ kind: 'key', label: combo });
+    }
   }, true);
   // Screen changes (single-page apps change the title or address without a page load).
   let last = document.title + location.href;
@@ -146,7 +192,44 @@ function onAction(tabId, payload) {
   if (a.title) session.screens.set(tabId, a.title);
   if (a.kind === 'screen') return;
   // A page load becomes a step named after the screen ("Opened …").
-  session.actions.push({ tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t });
+  session.actions.push({
+    tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t,
+    ...(a.target ? { target: a.target } : {}),
+  });
+  if (STEP_KINDS.includes(a.kind)) scheduleShot(tabId, a.t);
+}
+
+// ---- screenshots (scenario mode) ----------------------------------------------
+// One picture per step, taken when the step's calls have finished (at least
+// 0.9 s after the action, at most 6 s), so it shows the result of the step.
+// A new action first takes the previous step's picture straight away.
+
+function scheduleShot(tabId, actionT) {
+  const s = session;
+  if (!s?.scenario || !s.settings.screenshots) return;
+  const waiting = s.shotTimers.get(tabId);
+  if (waiting) {
+    clearTimeout(waiting.timer);
+    takeShot(s, tabId, waiting.t);
+  }
+  const startedAt = Date.now();
+  const entry = { t: actionT };
+  const check = () => {
+    const busy = [...s.records.values()].some((r) => r.tabId === tabId);
+    if (busy && Date.now() - startedAt < 6000) { entry.timer = setTimeout(check, 250); return; }
+    s.shotTimers.delete(tabId);
+    takeShot(s, tabId, actionT);
+  };
+  entry.timer = setTimeout(check, 900);
+  s.shotTimers.set(tabId, entry);
+}
+
+function takeShot(s, tabId, t) {
+  const job = chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'jpeg', quality: 60 })
+    .then((r) => { if (r?.data) s.shots.push({ tabId, t, data: r.data }); })
+    .catch(() => { /* tab closed or hidden */ });
+  s.pending.add(job);
+  job.finally(() => s.pending.delete(job));
 }
 
 // Tabs opened by a recorded tab (e.g. WM Mobile opening in a new tab with
@@ -262,6 +345,8 @@ async function stop(reason) {
   session = null;
   clearInterval(keepAlive);
   showBadge();
+  // Steps still waiting for their screenshot get it now, before letting go of the tabs.
+  for (const [tabId, waiting] of s.shotTimers) { clearTimeout(waiting.timer); takeShot(s, tabId, waiting.t); }
   // Let body fetches that are already running finish, then let go of the tabs.
   await Promise.allSettled([...s.pending]);
   for (const tabId of s.tabs) await chrome.debugger.detach({ tabId }).catch(() => {});
@@ -271,17 +356,31 @@ async function stop(reason) {
     const tab = await chrome.tabs.get(page.tabId).catch(() => null);
     if (tab) Object.assign(page, { url: tab.url || page.url, title: tab.title || page.title });
   }
-  const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version, s.actions);
+  const scenario = s.scenario ? { ...s.scenario, recordedAt: new Date(s.startedAt).toISOString() } : null;
+  const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version, s.actions, scenario);
   const rootUrl = s.pages.get(s.rootTabId)?.url || '';
-  // Full details (HAR) and/or the summary report, with matching names.
-  const harName = harFilename(s.settings.filename, rootUrl);
+  // Screenshots belong to the step whose action they follow.
+  const shots = {};
+  for (const shot of s.shots) {
+    const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
+    if (step && !shots[step.n]) shots[step.n] = shot.data;
+  }
+  // Scenario mode: Downloads/<folder>/<tier>-<name>_<timestamp>/recording.har, .html, step-01.jpg …
+  // Otherwise: API_<host>_<timestamp>.har / .html.
+  const folder = scenario ? `${scenarioDir(s.settings.scenarioFolder, scenario)}/` : '';
+  const harName = scenario ? `${folder}recording.har` : harFilename(s.settings.filename, rootUrl);
   const saveHar = s.settings.outputHar || !s.settings.outputSummary;
   if (saveHar) await download(JSON.stringify(har, null, 2), harName);
   if (s.settings.outputSummary) {
-    const html = buildSummaryHtml(har, { startedAt: s.startedAt, endedAt: Date.now(), harName: saveHar ? harName : null, maxLines: s.settings.summaryLines, relevantOnly: s.settings.relevantOnly });
+    const html = buildSummaryHtml(har, {
+      startedAt: s.startedAt, endedAt: Date.now(), harName: saveHar ? harName.split('/').pop() : null,
+      maxLines: s.settings.summaryLines, relevantOnly: s.settings.relevantOnly, scenario, shots,
+    });
     await download(html, harName.replace(/\.har$/i, '.html'));
   }
-  flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${s.done.length} call(s) to Downloads${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);
+  for (const [n, data] of Object.entries(shots)) await download(data, `${folder}step-${String(n).padStart(2, '0')}.jpg`, 'image/jpeg', true);
+  const what = scenario ? `"${scenario.name}" (${s.done.length} calls, ${Object.keys(shots).length} screenshots) to Downloads\\${folder.replace(/\//g, '\\')}` : `${s.done.length} call(s) to Downloads`;
+  flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${what}${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);
   chrome.action.setBadgeBackgroundColor({ color: '#188038' });
 }
 
@@ -296,16 +395,69 @@ chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   suggest({ filename: nextFilenames.shift(), conflictAction: 'uniquify' });
 });
 
-async function download(text, filename) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  // octet-stream, so Chrome keeps the .har extension (with JSON it renames it .json).
-  const url = `data:application/octet-stream;base64,${btoa(binary)}`;
+async function download(content, filename, type = 'application/octet-stream', isBase64 = false) {
+  let data = content;
+  if (!isBase64) {
+    const bytes = new TextEncoder().encode(content);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    data = btoa(binary);
+  }
+  // octet-stream for text, so Chrome keeps the .har extension (with JSON it renames it .json).
+  const url = `data:${type};base64,${data}`;
   nextFilenames.push(filename);
   await chrome.downloads.download({ url, filename, conflictAction: 'uniquify' });
 }
 
+// "Scenario name" folder: <tier>-<name>_<YYYYMMDDHHMMSS>, only letters, digits and dashes.
+function scenarioDir(base, scenario, date = new Date()) {
+  const slug = String(scenario.name || 'scenario').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'scenario';
+  const stamp = harFilename('{timestamp}', '', date).replace(/\.har$/, '');
+  const root = String(base || DEFAULT_SETTINGS.scenarioFolder).replace(/[\\:*?"<>|]+/g, '_').replace(/^\/+|\/+$/g, '');
+  return `${root}/${scenario.tier || 'standard'}-${slug}_${stamp}`;
+}
+
+// ---- the scenario panel (popup.html) ----------------------------------------
+// In scenario mode the icon opens a panel (name, tier, area… then Start;
+// while recording: Add checkpoint, Stop & save) instead of starting at once.
+
+async function applyIconMode() {
+  const { scenarioMode } = await getSettings();
+  await chrome.action.setPopup({ popup: scenarioMode ? 'popup.html' : '' });
+}
+chrome.storage.onChanged.addListener((changes) => { if (changes.settings) applyIconMode(); });
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // From the scenario panel only (popup.html, also when opened in a tab).
+  if (!msg?.type?.startsWith('panel-') || sender.id !== chrome.runtime.id || !sender.url?.includes('/popup.html')) return;
+  (async () => {
+    switch (msg.type) {
+      case 'panel-status':
+        return session ? {
+          recording: true, scenario: session.scenario, startedAt: session.startedAt,
+          calls: session.done.length, steps: session.actions.filter((a) => STEP_KINDS.includes(a.kind)).length,
+          checkpoints: session.actions.filter((a) => a.kind === 'checkpoint').length,
+        } : { recording: false };
+      case 'panel-start': {
+        if (session) return { error: 'Already recording.' };
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        const error = await start(tab, msg.scenario);
+        return error ? { error } : { ok: true };
+      }
+      case 'panel-checkpoint':
+        if (!session) return { error: 'Not recording.' };
+        session.actions.push({ tabId: session.rootTabId, kind: 'checkpoint', label: String(msg.text || '').slice(0, 200), t: Date.now() });
+        return { ok: true };
+      case 'panel-stop':
+        await stop('button');
+        return { ok: true };
+    }
+    return {};
+  })().then(sendResponse, (e) => sendResponse({ error: String(e?.message || e) }));
+  return true;
+});
+
 // After a browser or extension restart nothing is recording: clear the badge.
-chrome.runtime.onStartup.addListener(showBadge);
-chrome.runtime.onInstalled.addListener(showBadge);
+chrome.runtime.onStartup.addListener(() => { showBadge(); applyIconMode(); });
+chrome.runtime.onInstalled.addListener(() => { showBadge(); applyIconMode(); });
+applyIconMode();

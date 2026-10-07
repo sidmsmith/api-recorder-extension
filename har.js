@@ -28,7 +28,12 @@ const DEFAULT_SETTINGS = {
   relevantOnly: true,           // the summary opens showing relevant calls only
   alwaysShow: '',               // URL patterns always treated as relevant (summary)
   alwaysHide: '',               // URL patterns always treated as background (summary)
+  scenarioMode: false,          // ask for a scenario (name, tier, area) before recording
+  screenshots: true,            // screenshot after each step (scenario mode)
+  scenarioFolder: 'scenario_library_inbox', // under Downloads
 };
+
+const TIERS = { gold: 'Gold / Base', standard: 'Standard', custom: 'Custom' };
 
 // Manhattan WMS screen-framework calls: menus, translations, provisioning,
 // chatbot, screen configuration and metadata. Large and rarely what you're
@@ -72,12 +77,33 @@ const PING = /\/ping(\?|$)/i;
 // A GET within this long after a click or Enter counts as triggered by it.
 const TRIGGER_MS = 5000;
 
-// Steps = your actions (clicks, Enter, a tab opening) in time order.
-// actions: [{ tabId, kind: 'click'|'enter'|'load'|'screen', label, value, title, t }]
+// Steps = your actions in time order. Clicks, Enter, keys (F2, Ctrl+S) and a
+// page opening start a step. Field values you typed ("input") belong to the
+// next step (the click or key that submits them; the field is left just
+// before it); your checkpoints belong to the step they were added in.
+// actions: [{ tabId, kind: 'click'|'enter'|'key'|'load'|'input'|'checkpoint', label, value, title, target, t }]
+const STEP_KINDS = ['click', 'enter', 'key', 'load'];
 function stepsFrom(actions) {
-  return (actions || []).filter((a) => a.kind === 'click' || a.kind === 'enter' || a.kind === 'load')
-    .sort((a, b) => a.t - b.t)
-    .map((a, i) => ({ n: i + 1, t: a.t, kind: a.kind, label: a.label || '', value: a.value || '', screen: a.title || '', tabId: a.tabId }));
+  const steps = [];
+  let current = null;
+  let typed = []; // values typed since the last step, waiting for the next one
+  for (const a of [...(actions || [])].sort((x, y) => x.t - y.t)) {
+    if (a.kind === 'input') { typed.push({ label: a.label || '', value: a.value || '', t: a.t }); continue; }
+    if (STEP_KINDS.includes(a.kind) || !current) {
+      const kind = STEP_KINDS.includes(a.kind) ? a.kind : 'start';
+      current = {
+        n: steps.length + 1, t: a.t, kind, label: kind === 'start' ? '' : a.label || '', value: kind === 'start' ? '' : a.value || '',
+        screen: a.title || '', tabId: a.tabId, ...(a.target ? { target: a.target } : {}), inputs: [], checkpoints: [],
+      };
+      if (kind !== 'start') { current.inputs.push(...typed); typed = []; }
+      steps.push(current);
+      if (kind !== 'start') continue;
+    }
+    if (a.kind === 'checkpoint') current.checkpoints.push({ text: a.label || '', t: a.t });
+  }
+  // Typed at the very end with no step after it: keep it on the last step.
+  if (typed.length && current) current.inputs.push(...typed);
+  return steps;
 }
 
 function classify(entry, step, settings) {
@@ -260,7 +286,7 @@ function redactEntry(entry) {
 // The whole HAR. pages: [{ tabId, title, url, startedAt }]. actions: your
 // clicks etc. (see stepsFrom); they become log._steps, and each entry gets
 // _step, _category and _screen (the screen's title when the call was made).
-function buildHar(records, pages, settings, version, actions = []) {
+function buildHar(records, pages, settings, version, actions = [], scenario = null) {
   const steps = stepsFrom(actions);
   const entries = records.map((r) => ({ ...buildEntry(r), ...(r.screen ? { _screen: r.screen } : {}) }))
     .map((e) => (settings.redact ? redactEntry(e) : e))
@@ -277,7 +303,13 @@ function buildHar(records, pages, settings, version, actions = []) {
         pageTimings: {},
       })),
       entries,
-      _steps: steps.map((st) => ({ ...st, time: new Date(st.t).toISOString(), value: settings.redact ? redactJson(st.value) : st.value })),
+      _steps: steps.map((st) => ({
+        ...st,
+        time: new Date(st.t).toISOString(),
+        value: settings.redact ? redactJson(st.value) : st.value,
+        inputs: st.inputs.map((x) => ({ ...x, value: settings.redact ? redactJson(x.value) : x.value })),
+      })),
+      ...(scenario ? { _scenario: scenario } : {}),
       ...(settings.redact ? { comment: 'Secrets (auth headers, cookies, token/password fields) are replaced with [REDACTED].' } : {}),
     },
   };
@@ -294,4 +326,4 @@ function harFilename(pattern, url, date = new Date()) {
   return name.toLowerCase().endsWith('.har') ? name : `${name}.har`;
 }
 
-if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, UI_PATTERNS, stepsFrom, classify, annotate, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };
+if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, TIERS, UI_PATTERNS, stepsFrom, classify, annotate, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };

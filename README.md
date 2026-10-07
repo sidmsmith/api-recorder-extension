@@ -20,6 +20,30 @@ download a **HAR** file.
      analysis.
    - `API_salep_20261007141530.html` – the **summary report** (see below).
 
+## Scenario mode (building a test library)
+
+Turn on **Record scenarios** in the options. The icon then opens a small
+panel instead of starting at once:
+
+1. Enter the **scenario name**, **tier** (Gold / Base, Standard, Custom),
+   **area** (Receiving, Putaway…), the **customer** for Custom scenarios, and
+   optional notes. Tier, area and customer are remembered for the next one.
+2. **Start recording** and run the scenario.
+3. While recording, the panel shows the steps, calls and checkpoints so far.
+   Use **Checkpoint** to note what should be true at that point ("ASN
+   created, status Received"); checkpoints become the checks of an automated
+   replay.
+4. **Stop & save.** Everything goes into one folder:
+   `Downloads\scenario_library_inbox\<tier>-<name>_<timestamp>\` with
+   `recording.har`, `recording.html` (titled with the scenario) and a
+   screenshot after each step (`step-01.jpg`, … – option, on).
+
+What a recording notes about you: clicks (the button or menu text, plus
+what was clicked – element, id, classes – for a later replay), Enter in a
+field and its value, function keys and shortcuts (F2, Ctrl+S), values typed
+into fields (attached to the click or key that submits them), and screen
+changes. Password-like fields are never read.
+
 ## The summary report
 
 - **Steps:** your clicks while recording ("Clicked “Blind Receipt”",
@@ -55,6 +79,8 @@ Right-click the icon → **Options**:
 - **Bodies** – save response bodies (on), skipping bodies over a size (1 MB).
   Request bodies (payloads) are always saved.
 - **Redact secrets** – on by default; see Privacy.
+- **Scenario mode** – record scenarios (off), screenshot after each step
+  (on), the Downloads folder for scenarios.
 - **Summary report** – group calls by your clicks (on); open showing relevant
   calls only (on); your own Always relevant / Always background patterns.
 - **Files** – full details (HAR) and/or the summary report (HTML), both on;
