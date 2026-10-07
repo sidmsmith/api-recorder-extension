@@ -101,11 +101,14 @@ async function attach(tab) {
 // and screen changes. Password-like fields are never read. Installed for the
 // current page and every page loaded afterwards.
 
-const BINDING = '__apiRecorderAction';
+// Named after the extension's version: a page that was open before an update
+// still runs the old tracker, which must neither block the new one nor keep
+// reporting (it calls a binding name that no longer exists).
+const BINDING = `__apiRecorderAction_${chrome.runtime.getManifest().version.replace(/\W/g, '_')}`;
 
-function pageTracker() {
-  if (window.__apiRecorderTracker) return;
-  window.__apiRecorderTracker = true;
+function pageTracker(binding) {
+  if (window[`${binding}_installed`]) return;
+  window[`${binding}_installed`] = true;
   // The screen's name: the visible page header (WM Mobile shows "MENU", "Blind
   // Receipt"… while its tab title stays "WM Mobile"), else the tab title.
   const screenName = () => {
@@ -115,7 +118,7 @@ function pageTracker() {
     return header || document.title;
   };
   const report = (o) => {
-    try { window.__apiRecorderAction(JSON.stringify({ ...o, t: Date.now(), title: screenName() })); } catch (e) { /* binding gone */ }
+    try { window[binding](JSON.stringify({ ...o, t: Date.now(), title: screenName() })); } catch (e) { /* binding gone */ }
   };
   const clean = (s, n = 60) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
   const CLICKABLE = 'button, a, [role=button], [role=menuitem], [role=tab], [role=option], [role=row], [role=gridcell], ion-item, ion-button, mat-option, li, tr, td, label, summary, input, select';
@@ -203,7 +206,7 @@ function pageTracker() {
 }
 
 async function installTracker(target) {
-  const source = `(${pageTracker})();`;
+  const source = `(${pageTracker})(${JSON.stringify(BINDING)});`;
   await chrome.debugger.sendCommand(target, 'Runtime.enable');
   await chrome.debugger.sendCommand(target, 'Runtime.addBinding', { name: BINDING });
   await chrome.debugger.sendCommand(target, 'Page.enable');
