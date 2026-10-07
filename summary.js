@@ -36,8 +36,8 @@ function stepText(st) {
   if (st.kind === 'load') return `Opened “${st.screen || 'a page'}”`;
   if (st.kind === 'key') return `Pressed ${st.label || 'a key'}`;
   if (st.kind === 'start') return 'Recording started';
-  const field = st.field ? ` · ${st.field.label} = ${st.field.value || '(empty)'}` : '';
-  return `Clicked “${st.label || 'something'}”${field}`;
+  const field = st.field ? ` on the ${st.field.label} line (${st.field.value || 'empty'})` : '';
+  return `Clicked “${st.label || 'something'}”${field}${st.noEffect ? ' (no effect)' : ''}`;
 }
 
 // The signed-in user (and organization), from the WMS's activity headers or
@@ -86,7 +86,7 @@ function buildSummaryHtml(har, meta) {
   });
   const shots = meta.shots || {};
   const steps = (har.log._steps || []).map((st) => ({
-    n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '',
+    n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '', noEffect: Boolean(st.noEffect),
     inputs: (st.inputs || []).map((x) => ({ label: x.label, value: x.value })),
     checkpoints: (st.checkpoints || []).map((c) => ({ text: c.text, time: clock(new Date(c.t)) })),
     ...(shots[st.n] ? { shot: `data:image/jpeg;base64,${shots[st.n]}` } : {}),
@@ -149,6 +149,7 @@ function buildSummaryHtml(har, meta) {
   .stephead b { font-size: 13.5px; }
   .stephead .sn { color: var(--accent); font-weight: 700; font-size: 12.5px; }
   .stephead .st { color: var(--muted); font-size: 12.5px; }
+  section.noeffect .stephead { opacity: .55; }
   .call { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
   .call.err { box-shadow: inset 4px 0 0 var(--err); } /* inner edge: rows stay aligned */
   .call.background { opacity: .62; }
@@ -307,7 +308,9 @@ function reportScript() {
       // a step also shows for its typed values, checkpoints or screenshot (and
       // every step shows while "relevant only" is off).
       const filtering = errorsOnly || q;
-      section.hidden = !(any || (!filtering && (extras(g) || (!relOnly && g.head))));
+      // No-effect clicks only appear in the full view (greyed).
+      section.hidden = !(any || (!filtering && (relOnly ? extras(g) && !g.head?.noEffect : g.head)));
+      section.classList.toggle('noeffect', Boolean(g.head?.noEffect));
     });
     document.getElementById('count').textContent = `Showing ${shown} of ${calls.length} calls${relOnly ? ' · background calls hidden' : ''}`;
   };

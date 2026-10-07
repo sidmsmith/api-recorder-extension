@@ -229,9 +229,11 @@ function onAction(tabId, payload) {
 }
 
 // ---- screenshots (scenario mode) ----------------------------------------------
-// One picture per step, taken when the step's calls have finished (at least
-// 0.9 s after the action, at most 6 s), so it shows the result of the step.
-// A new action first takes the previous step's picture straight away.
+// One picture per step, taken once the step's calls have finished and the
+// app's loading overlay (WM Mobile's "Loading....") is gone, plus a short
+// settle: at least 0.9 s after the action, at most 30 s (slow transactions
+// take 8 s or more). A new action first takes the previous step's picture
+// straight away.
 
 function scheduleShot(tabId, actionT) {
   const s = session;
@@ -243,9 +245,19 @@ function scheduleShot(tabId, actionT) {
   }
   const startedAt = Date.now();
   const entry = { t: actionT };
-  const check = () => {
-    const busy = [...s.records.values()].some((r) => r.tabId === tabId);
-    if (busy && Date.now() - startedAt < 6000) { entry.timer = setTimeout(check, 250); return; }
+  let quietSince = 0;
+  const check = async () => {
+    if (s.shotTimers.get(tabId) !== entry) return; // replaced by a newer step
+    const calls = [...s.records.values()].some((r) => r.tabId === tabId);
+    const loading = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+      expression: "[...document.querySelectorAll('ion-loading')].some((el) => !el.classList.contains('overlay-hidden') && el.getClientRects().length > 0)",
+      returnByValue: true,
+    }).then((r) => Boolean(r?.result?.value), () => false);
+    const busy = calls || loading;
+    quietSince = busy ? 0 : quietSince || Date.now();
+    // Quiet for 0.4 s (the new screen has drawn), or give up after 30 s.
+    if ((!quietSince || Date.now() - quietSince < 400) && Date.now() - startedAt < 30000) { entry.timer = setTimeout(check, 200); return; }
+    if (s.shotTimers.get(tabId) !== entry) return;
     s.shotTimers.delete(tabId);
     takeShot(s, tabId, actionT);
   };
@@ -392,7 +404,7 @@ async function stop(reason) {
   const shots = {};
   for (const shot of s.shots) {
     const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
-    if (step && !shots[step.n]) shots[step.n] = shot.data;
+    if (step && !step.noEffect && !shots[step.n]) shots[step.n] = shot.data;
   }
   // Scenario mode: Downloads/<folder>/<tier>-<name>_<timestamp>/recording.har, .html, step-01.jpg …
   // Otherwise: API_<host>_<timestamp>.har / .html.

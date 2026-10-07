@@ -296,6 +296,14 @@ function buildHar(records, pages, settings, version, actions = [], scenario = nu
     .map((e) => (settings.redact ? redactEntry(e) : e))
     .sort((a, b) => a.startedDateTime.localeCompare(b.startedDateTime));
   annotate(entries, steps, settings);
+  // A click that set nothing off - no call (of any kind), the next step on
+  // the same screen, nothing typed, no checkpoint - e.g. clicking a display
+  // line before pasting a value. Kept, but marked so the report can hide it.
+  steps.forEach((st, i) => {
+    const next = steps[i + 1];
+    if (st.kind === 'click' && !st.field && !st.inputs.length && !st.checkpoints.length
+      && !entries.some((e) => e._step === st.n) && (!next || next.screen === st.screen)) st.noEffect = true;
+  });
   return {
     log: {
       version: '1.2',
