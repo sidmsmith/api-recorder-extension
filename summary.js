@@ -36,7 +36,8 @@ function stepText(st) {
   if (st.kind === 'load') return `Opened “${st.screen || 'a page'}”`;
   if (st.kind === 'key') return `Pressed ${st.label || 'a key'}`;
   if (st.kind === 'start') return 'Recording started';
-  return `Clicked “${st.label || 'something'}”`;
+  const field = st.field ? ` · ${st.field.label} = ${st.field.value || '(empty)'}` : '';
+  return `Clicked “${st.label || 'something'}”${field}`;
 }
 
 // The signed-in user (and organization), from the WMS's activity headers or

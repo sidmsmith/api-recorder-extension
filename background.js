@@ -106,8 +106,16 @@ const BINDING = '__apiRecorderAction';
 function pageTracker() {
   if (window.__apiRecorderTracker) return;
   window.__apiRecorderTracker = true;
+  // The screen's name: the visible page header (WM Mobile shows "MENU", "Blind
+  // Receipt"… while its tab title stays "WM Mobile"), else the tab title.
+  const screenName = () => {
+    const titles = [...document.querySelectorAll('ion-header ion-title, ion-toolbar ion-title')]
+      .filter((el) => el.getClientRects().length && !el.closest('.ion-page-hidden'));
+    const header = titles.length ? titles[titles.length - 1].innerText.replace(/\s+/g, ' ').trim() : '';
+    return header || document.title;
+  };
   const report = (o) => {
-    try { window.__apiRecorderAction(JSON.stringify({ ...o, t: Date.now(), title: document.title })); } catch (e) { /* binding gone */ }
+    try { window.__apiRecorderAction(JSON.stringify({ ...o, t: Date.now(), title: screenName() })); } catch (e) { /* binding gone */ }
   };
   const clean = (s, n = 60) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
   const CLICKABLE = 'button, a, [role=button], [role=menuitem], [role=tab], [role=option], [role=row], [role=gridcell], ion-item, ion-button, mat-option, li, tr, td, label, summary, input, select';
@@ -115,9 +123,9 @@ function pageTracker() {
   const isSecret = (el, label) => el.type === 'password' || /pass|pin|secret|token/i.test(`${label} ${el.name || ''} ${el.id || ''}`);
   // A field's label: <label for>, aria-label, placeholder, name, or the label text of its form row.
   const fieldLabel = (el) => clean(
-    el.labels?.[0]?.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder')
+    el.labels?.[0]?.innerText || el.getAttribute('aria-label')
     || el.closest('ion-item, mat-form-field, .form-group, .field, tr')?.querySelector('ion-label, label, mat-label, th')?.innerText
-    || el.getAttribute('name') || el.id || el.tagName.toLowerCase());
+    || el.getAttribute('placeholder') || el.getAttribute('name') || el.id || el.tagName.toLowerCase());
   // What was clicked, for finding it again later.
   const describe = (el) => ({
     tag: el.tagName.toLowerCase(),
@@ -134,12 +142,29 @@ function pageTracker() {
       return parts.join(' < ');
     })(),
   });
+  // Components like Ionic's ion-button keep their real <button> in a shadow
+  // root, with the text ("GO") on the outer element: use the outer one.
+  const inShadow = (n) => n.getRootNode() instanceof ShadowRoot;
+  // The field next to a clicked button (e.g. ASN beside GO), with its value -
+  // empty matters: GO on an empty ASN creates a new one.
+  // Only when it's the one field around the button (like WM Mobile's ASN row);
+  // a button among several fields gets none rather than a guess.
+  const fieldNear = (el) => {
+    for (let n = el.parentElement, k = 0; n && n !== document.body && k < 3; n = n.parentElement, k++) {
+      const fields = [...n.querySelectorAll('input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]), textarea, select')].filter((f) => f !== el);
+      if (fields.length === 1) return fields[0];
+      if (fields.length > 1) return null;
+    }
+    return null;
+  };
   addEventListener('click', (e) => {
     const path = e.composedPath().filter((n) => n instanceof Element);
-    const el = path.find((n) => n.matches(CLICKABLE)) || path[0];
+    const el = path.find((n) => n.matches(CLICKABLE) && !inShadow(n)) || path.find((n) => !inShadow(n)) || path[0];
     // Clicking into a text box only places the cursor: Enter or the typed value is the step.
     if (!el || (el.matches('textarea, input') && !/^(button|submit|checkbox|radio|reset|image|file|color|range)$/i.test(el.type))) return;
-    report({ kind: 'click', label: labelOf(el), target: describe(el) });
+    const near = el.matches('button, ion-button, [role=button], input[type=button], input[type=submit]') ? fieldNear(el) : null;
+    const field = near ? (() => { const label = fieldLabel(near); return { label, value: isSecret(near, label) ? '' : clean(near.value, 40) }; })() : null;
+    report({ kind: 'click', label: labelOf(el), target: describe(el), ...(field ? { field } : {}) });
   }, true);
   // Field values: remember the value when a field gets focus, report it when you leave if it changed.
   const before = new WeakMap();
@@ -195,6 +220,7 @@ function onAction(tabId, payload) {
   session.actions.push({
     tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t,
     ...(a.target ? { target: a.target } : {}),
+    ...(a.field ? { field: a.field } : {}),
   });
   if (STEP_KINDS.includes(a.kind)) scheduleShot(tabId, a.t);
 }

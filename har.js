@@ -93,9 +93,13 @@ function stepsFrom(actions) {
       const kind = STEP_KINDS.includes(a.kind) ? a.kind : 'start';
       current = {
         n: steps.length + 1, t: a.t, kind, label: kind === 'start' ? '' : a.label || '', value: kind === 'start' ? '' : a.value || '',
-        screen: a.title || '', tabId: a.tabId, ...(a.target ? { target: a.target } : {}), inputs: [], checkpoints: [],
+        screen: a.title || '', tabId: a.tabId, ...(a.target ? { target: a.target } : {}), ...(a.field ? { field: a.field } : {}), inputs: [], checkpoints: [],
       };
-      if (kind !== 'start') { current.inputs.push(...typed); typed = []; }
+      // A value already shown as the field beside the clicked button isn't repeated.
+      if (kind !== 'start') {
+        current.inputs.push(...typed.filter((x) => !(a.field && x.label === a.field.label && x.value === a.field.value)));
+        typed = [];
+      }
       steps.push(current);
       if (kind !== 'start') continue;
     }
@@ -308,6 +312,7 @@ function buildHar(records, pages, settings, version, actions = [], scenario = nu
         time: new Date(st.t).toISOString(),
         value: settings.redact ? redactJson(st.value) : st.value,
         inputs: st.inputs.map((x) => ({ ...x, value: settings.redact ? redactJson(x.value) : x.value })),
+        ...(st.field ? { field: { ...st.field, value: settings.redact ? redactJson(st.field.value) : st.field.value } } : {}),
       })),
       ...(scenario ? { _scenario: scenario } : {}),
       ...(settings.redact ? { comment: 'Secrets (auth headers, cookies, token/password fields) are replaced with [REDACTED].' } : {}),
