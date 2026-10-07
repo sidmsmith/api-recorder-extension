@@ -90,8 +90,9 @@ function buildSummaryHtml(har, meta) {
   .tools button { padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: inherit; cursor: pointer; font: inherit; }
   .tools button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .call { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
-  .call.err { border-left: 4px solid var(--err); }
-  .head { display: grid; grid-template-columns: 44px 70px 60px 60px 1fr auto; gap: 10px; align-items: center; padding: 9px 12px; cursor: pointer; }
+  .call.err { box-shadow: inset 4px 0 0 var(--err); } /* inner edge: rows stay aligned */
+  .head { display: grid; grid-template-columns: 30px 58px 40px 34px var(--tabw, 110px) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; cursor: pointer; }
+  .tab { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); background: var(--code); border-radius: 10px; padding: 1px 8px; }
   .head:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   .n, .ms, .time { color: var(--muted); font-size: 12.5px; }
   .method { font-weight: 700; font-size: 12px; }
@@ -102,7 +103,7 @@ function buildSummaryHtml(har, meta) {
   .call.open .body { display: block; }
   .url { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--muted); word-break: break-all; margin-bottom: 8px; }
   .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  @media (max-width: 760px) { .panes { grid-template-columns: 1fr; } .head { grid-template-columns: 34px 50px 44px 1fr; } .ms, .time { display: none; } }
+  @media (max-width: 760px) { .panes { grid-template-columns: 1fr; } .head { grid-template-columns: 26px 40px 34px min(var(--tabw, 110px), 90px) minmax(0, 1fr); } .ms, .time { display: none; } }
   .pane { min-width: 0; }
   .pane h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 4px; display: flex; justify-content: space-between; }
   .pane h3 button { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; text-transform: none; letter-spacing: 0; }
@@ -145,11 +146,20 @@ const pane = (title, text, key) => '<div class="pane"><h3>' + title + (text == n
   + (text == null ? '<div class="none">none</div>' : '<pre>' + color(text) + '</pre>') + '</div>';
 const path = (u) => { try { const x = new URL(u); return x.pathname + x.search; } catch { return u; } };
 const list = document.getElementById('list');
+// One width for the tab column (the longest tab name, up to 150 px) so the endpoints line up.
+const ruler = document.createElement('span');
+ruler.className = 'tab';
+ruler.style.cssText = 'position:absolute;visibility:hidden;max-width:none';
+document.body.append(ruler);
+const tabWidth = Math.max(40, ...calls.map((c) => { ruler.textContent = c.tab || '–'; return ruler.offsetWidth; }));
+ruler.remove();
+list.style.setProperty('--tabw', Math.min(150, tabWidth + 2) + 'px');
 list.innerHTML = calls.length ? calls.map((c, i) => {
   const bad = c.status >= 400 || c.status === 0;
   return '<div class="call' + (bad ? ' err' : '') + '" data-i="' + i + '"><div class="head">'
     + '<span class="n">#' + c.n + '</span><span class="time">' + c.time + '</span><span class="method">' + esc(c.method) + '</span>'
     + '<span class="status ' + (bad ? 'bad' : 'ok') + '" title="' + esc(c.statusText) + '">' + (c.status || 'ERR') + '</span>'
+    + '<span class="tab" title="' + esc(c.tab) + '">' + esc(c.tab || '–') + '</span>'
     + '<span class="path" title="' + esc(c.url) + '">' + esc(path(c.url)) + '</span><span class="ms">' + c.ms.toLocaleString('en-US') + ' ms</span></div>'
     + '<div class="body"><div class="url">' + esc(c.url) + (c.tab ? ' · tab ' + esc(c.tab) : '') + (c.statusText ? ' · ' + esc(c.statusText) : '') + '</div>'
     + '<div class="panes">' + pane('Payload', c.payload, i + ':p') + pane('Response', c.response, i + ':r') + '</div></div></div>';
