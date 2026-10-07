@@ -23,7 +23,12 @@ const DEFAULT_SETTINGS = {
 };
 
 const SECRET_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-auth-token', 'x-api-key', 'x-csrf-token', 'x-xsrf-token'];
-const SECRET_FIELD = /^(access_?token|refresh_?token|id_?token|token|password|passwd|client_?secret|secret|api_?key)$/i;
+// Field names whose values are secrets (in JSON bodies and URL parameters),
+// e.g. access_token, tokenValue, idToken, password, ClientSecret, sessionId.
+const SECRET_FIELD = /^((access|refresh|id|auth)?_?token(_?value)?|pass(word|wd)?|(client_?)?secret|api_?key|session_?id|credentials?)$/i;
+// Sign-in tokens (JWTs: three base64url parts, the first starting "eyJ"),
+// masked wherever they appear, whatever the field is called.
+const JWT = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g;
 const REDACTED = '[REDACTED]';
 
 // "*" wildcard patterns, one per line; case-insensitive, matched anywhere in the URL.
@@ -125,6 +130,7 @@ function buildEntry(rec) {
 
 // Mask secret values in a JSON text (keys like access_token, password).
 function redactJson(text) {
+  text = text.replace(JWT, REDACTED);
   text = text.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9\-._~+/]+=*/g, `$1 ${REDACTED}`); // tokens echoed anywhere
   let data;
   try {
@@ -148,10 +154,12 @@ function redactJson(text) {
 }
 
 function redactEntry(entry) {
-  const maskHeaders = (list) => list.map((h) => (SECRET_HEADERS.includes(h.name.toLowerCase()) ? { ...h, value: REDACTED } : h));
+  const maskHeaders = (list) => list.map((h) => (SECRET_HEADERS.includes(h.name.toLowerCase()) ? { ...h, value: REDACTED }
+    : { ...h, value: h.value.replace(JWT, REDACTED) }));
   entry.request.headers = maskHeaders(entry.request.headers);
   entry.response.headers = maskHeaders(entry.response.headers);
-  entry.request.queryString = entry.request.queryString.map((q) => (SECRET_FIELD.test(q.name) ? { ...q, value: REDACTED } : q));
+  entry.request.queryString = entry.request.queryString.map((q) => (SECRET_FIELD.test(q.name) || JWT.test(q.value) ? { ...q, value: REDACTED } : q));
+  JWT.lastIndex = 0;
   if (entry.request.queryString.some((q) => q.value === REDACTED)) {
     try {
       const u = new URL(entry.request.url);

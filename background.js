@@ -212,12 +212,23 @@ async function stop(reason) {
 
 // Download a text file from the service worker (no page needed): a base64
 // data URL, built in chunks so large HARs don't overflow the call stack.
+// Chrome may ignore the name passed to downloads.download (it did on the
+// user's machine, saving "download" without an extension); naming our own
+// downloads here takes priority. Other downloads are left alone.
+let nextFilename = null;
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (item.byExtensionId !== chrome.runtime.id || !nextFilename) return;
+  suggest({ filename: nextFilename, conflictAction: 'uniquify' });
+  nextFilename = null;
+});
+
 async function download(text, filename) {
   const bytes = new TextEncoder().encode(text);
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   // octet-stream, so Chrome keeps the .har extension (with JSON it renames it .json).
   const url = `data:application/octet-stream;base64,${btoa(binary)}`;
+  nextFilename = filename;
   await chrome.downloads.download({ url, filename, conflictAction: 'uniquify' });
 }
 
