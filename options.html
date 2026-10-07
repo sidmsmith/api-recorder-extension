@@ -58,11 +58,15 @@
   </section>
 
   <section>
-    <h2>File</h2>
+    <h2>Files</h2>
+    <label class="row"><input type="checkbox" id="outputHar"> <span><b>Full details (HAR)</b><p class="hint">Every call with all headers, timings and bodies. Open it in DevTools (Network panel → drag the file in), or send it for analysis.</p></span></label>
+    <label class="row"><input type="checkbox" id="outputSummary"> <span><b>Summary report (HTML)</b><p class="hint">An easy-to-read page: an overview, then each call with its payload and response side by side, searchable, with an errors-only view. Opens in your browser.</p></span></label>
+    <p>Show at most <input type="number" id="summaryLines" min="10" max="100000" step="10"> lines of each payload or response in the summary (the HAR always has everything).</p>
+    <p class="hint" id="noOutput" hidden>At least one file is needed: the full HAR is saved when both are off.</p>
     <b>File name</b>
     <input type="text" id="filename" spellcheck="false">
     <p class="hint"><code>{host}</code> = the site (e.g. <code>salep</code>), <code>{timestamp}</code> = YYYYMMDDHHMMSS. Example: <span id="example"></span></p>
-    <p class="hint">Files are saved to your Downloads folder automatically when you stop.</p>
+    <p class="hint">Files are saved to your Downloads folder automatically when you stop; the summary has the same name ending in <code>.html</code>.</p>
   </section>
 </main>
 <script src="har.js"></script>

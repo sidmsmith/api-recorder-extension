@@ -21,6 +21,9 @@ const DEFAULT_SETTINGS = {
   redact: true,                 // mask secrets (headers, cookies, token fields)
   followTabs: true,             // also record tabs opened from the recorded tab
   filename: 'API_{host}_{timestamp}.har',
+  outputHar: true,              // save the full HAR
+  outputSummary: true,          // save the HTML summary report (summary.js)
+  summaryLines: 200,            // longest body shown in the summary, in lines
 };
 
 // Manhattan WMS screen-framework calls: menus, translations, provisioning,

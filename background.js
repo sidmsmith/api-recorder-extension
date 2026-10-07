@@ -6,7 +6,7 @@
 // many calls have been captured. Chrome shows its "started debugging this
 // browser" bar while recording; its Cancel button also stops and saves.
 
-importScripts('har.js');
+importScripts('har.js', 'summary.js');
 
 let session = null; // the recording in progress, see start()
 let keepAlive = null;
@@ -205,7 +205,14 @@ async function stop(reason) {
   }
   const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version);
   const rootUrl = s.pages.get(s.rootTabId)?.url || '';
-  await download(JSON.stringify(har, null, 2), harFilename(s.settings.filename, rootUrl));
+  // Full details (HAR) and/or the summary report, with matching names.
+  const harName = harFilename(s.settings.filename, rootUrl);
+  const saveHar = s.settings.outputHar || !s.settings.outputSummary;
+  if (saveHar) await download(JSON.stringify(har, null, 2), harName);
+  if (s.settings.outputSummary) {
+    const html = buildSummaryHtml(har, { startedAt: s.startedAt, endedAt: Date.now(), harName: saveHar ? harName : null, maxLines: s.settings.summaryLines });
+    await download(html, harName.replace(/\.har$/i, '.html'));
+  }
   flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${s.done.length} call(s) to Downloads${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);
   chrome.action.setBadgeBackgroundColor({ color: '#188038' });
 }
@@ -215,11 +222,10 @@ async function stop(reason) {
 // Chrome may ignore the name passed to downloads.download (it did on the
 // user's machine, saving "download" without an extension); naming our own
 // downloads here takes priority. Other downloads are left alone.
-let nextFilename = null;
+const nextFilenames = []; // our downloads, in the order they were started
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-  if (item.byExtensionId !== chrome.runtime.id || !nextFilename) return;
-  suggest({ filename: nextFilename, conflictAction: 'uniquify' });
-  nextFilename = null;
+  if (item.byExtensionId !== chrome.runtime.id || !nextFilenames.length) return;
+  suggest({ filename: nextFilenames.shift(), conflictAction: 'uniquify' });
 });
 
 async function download(text, filename) {
@@ -228,7 +234,7 @@ async function download(text, filename) {
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   // octet-stream, so Chrome keeps the .har extension (with JSON it renames it .json).
   const url = `data:application/octet-stream;base64,${btoa(binary)}`;
-  nextFilename = filename;
+  nextFilenames.push(filename);
   await chrome.downloads.download({ url, filename, conflictAction: 'uniquify' });
 }
 
