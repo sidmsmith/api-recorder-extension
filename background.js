@@ -293,10 +293,13 @@ function scheduleShot(tabId, actionT) {
 // taken as soon as the typing pauses (so the value is visible in the field),
 // and given to the step that follows (the GO / Enter that submits it).
 // Screenshot with other tools' overlays (Claude in Chrome's glow border and
-// cursor) hidden for the moment of the capture. A counter in the page keeps
+// cursor, Device Frame's bezel) hidden for the moment of the capture. A counter in the page keeps
 // overlapping captures from showing them again too early.
 async function capture(s, tabId) {
-  const sel = s.settings.hideOverlays && (s.settings.overlaySelectors || '').trim();
+  const sel = [
+    s.settings.hideOverlays && (s.settings.overlaySelectors || '').trim(),
+    s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
+  ].filter(Boolean).join(', ');
   const run = (expression) => chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression }).catch(() => {});
   if (sel) {
     await run(`(() => { const w = window; w.__apiRecorderHide = (w.__apiRecorderHide || 0) + 1;
