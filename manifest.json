@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "API Recorder",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "One click to record a tab's API calls (like DevTools' Network panel), one click to stop and download a HAR file.",
   "icons": {
     "16": "icons/icon16.png",

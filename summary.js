@@ -37,6 +37,25 @@ function stepText(st) {
   return `Clicked “${st.label || 'something'}”`;
 }
 
+// The signed-in user (and organization), from the WMS's activity headers or
+// its sign-in user call. Empty when the recording doesn't show it.
+function findUser(entries) {
+  for (const e of entries) {
+    const h = Object.fromEntries(e.request.headers.map((x) => [x.name.toLowerCase(), x.value]));
+    const user = h['x-activitystream-user'];
+    if (user && user !== '[REDACTED]') return h['x-activitystream-userorg'] ? `${user} (organization ${h['x-activitystream-userorg']})` : user;
+  }
+  for (const e of entries) {
+    if (!/\/authserver\/user$/i.test(e.request.url.split('?')[0])) continue;
+    try {
+      const j = JSON.parse(e.response.content.text);
+      const name = j.name || j.principal?.username || j.userName || j.username;
+      if (name && name !== '[REDACTED]') return name;
+    } catch { /* not JSON */ }
+  }
+  return '';
+}
+
 // meta: { startedAt, endedAt (ms), harName (or null when no HAR is saved), maxLines, relevantOnly }
 function buildSummaryHtml(har, meta) {
   const { pages, entries, comment } = har.log;
@@ -69,10 +88,16 @@ function buildSummaryHtml(har, meta) {
   const errors = calls.filter(bad).length;
   const slowest = (relevant.length ? relevant : calls).reduce((m, c) => Math.max(m, c.ms), 0);
   const start = new Date(meta.startedAt), end = new Date(meta.endedAt);
+  const user = findUser(entries);
+  // Every screen visited, in order (from your steps and each call's screen).
+  const screens = [...new Set([
+    ...(har.log._steps || []).map((st) => ({ t: st.t, name: st.screen })),
+    ...entries.map((e) => ({ t: new Date(e.startedDateTime).getTime(), name: e._screen || tabTitle[e.pageref] })),
+  ].filter((x) => x.name).sort((a, b) => a.t - b.t).map((x) => x.name))];
   const rows = [
-    ['Site', hosts.join(', ') || '–'],
+    ['Site', `${hosts.join(', ') || '–'}${user ? ` · user ${user}` : ''}`],
     ['Recorded', `${day(start)} · ${clock(start)} – ${clock(end)} (${span(meta.endedAt - meta.startedAt)})`],
-    ['Tabs', pages.map((p) => p.title).join(', ') || '–'],
+    ['Screens', (screens.length ? screens : pages.map((p) => p.title)).join(' → ') || '–'],
     ...(meta.harName ? [['Full HAR', meta.harName]] : []),
   ];
   // Data for the page script; "<" escaped so nothing in a body can end the <script>.
@@ -288,4 +313,4 @@ function reportScript() {
   apply();
 }
 
-if (typeof module !== 'undefined') module.exports = { buildSummaryHtml, prettyBody, stepText, SUMMARY_DEFAULT_LINES };
+if (typeof module !== 'undefined') module.exports = { buildSummaryHtml, findUser, prettyBody, stepText, SUMMARY_DEFAULT_LINES };
