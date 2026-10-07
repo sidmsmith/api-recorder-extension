@@ -12,12 +12,17 @@ download a **HAR** file.
    debugging this browser" while recording – that's expected.
 2. Run your test. Page loads, logins and redirects are kept in the same log.
    Tabs the page opens (e.g. **WM Mobile**) are recorded too.
-3. Click the icon again (or **Cancel** on Chrome's debugging bar). The HAR
-   file is saved to **Downloads**, e.g. `API_salep_20261007141530.har`, and the
-   badge turns green with the number of calls saved.
-
-Open the HAR in DevTools (Network panel → drag the file in, or the import
-button), or in any HAR viewer.
+3. Click the icon again (or **Cancel** on Chrome's debugging bar). Two files
+   are saved to **Downloads**, and the badge turns green with the number of
+   calls saved:
+   - `API_salep_20261007141530.har` – the full details. Open it in DevTools
+     (Network panel → drag the file in) or any HAR viewer, or send it for
+     analysis.
+   - `API_salep_20261007141530.html` – the **summary report**: the site, time
+     and tabs, counts (calls, OK, errors, slowest), then every call as a row
+     (time, method, status, endpoint, duration). Click a call to see its
+     payload and response side by side, with Copy buttons; search them, or
+     show errors only.
 
 ## Options
 
@@ -33,6 +38,8 @@ Right-click the icon → **Options**:
 - **Bodies** – save response bodies (on), skipping bodies over a size (1 MB).
   Request bodies (payloads) are always saved.
 - **Redact secrets** – on by default; see Privacy.
+- **Files** – full details (HAR) and/or the summary report (HTML), both on;
+  how many lines of each payload/response the summary shows (200).
 - **File name** – `{host}` and `{timestamp}` (YYYYMMDDHHMMSS) placeholders.
 
 ## Privacy
