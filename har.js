@@ -15,12 +15,27 @@ const DEFAULT_SETTINGS = {
   scope: 'api',                 // 'api' = XHR/fetch calls only, 'all' = every request
   include: '',                  // URL patterns, one per line, * = anything; empty = all
   exclude: '',
+  skipUi: true,                 // skip the WMS screen framework's own calls (UI_PATTERNS)
   bodies: true,                 // save response bodies
   maxBodyKB: 1024,              // skip bodies bigger than this
   redact: true,                 // mask secrets (headers, cookies, token fields)
   followTabs: true,             // also record tabs opened from the recorded tab
   filename: 'API_{host}_{timestamp}.har',
 };
+
+// Manhattan WMS screen-framework calls: menus, translations, provisioning,
+// chatbot, screen configuration and metadata. Large and rarely what you're
+// investigating; skipped while "Skip WMS screen-framework calls" is on.
+const UI_PATTERNS = [
+  '*/commonui-facade/menu/*',
+  '*/commonui-facade/menuTab/*',
+  '*/i18n/translate/*',
+  '*/activeProvisioningProfile*',
+  '*/chatbot/*',
+  '*/dmui-facade/config/*',
+  '*.metadata.json*',
+  '*/userFilter/search*',
+].join('\n');
 
 const SECRET_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-auth-token', 'x-api-key', 'x-csrf-token', 'x-xsrf-token'];
 // Field names whose values are secrets (in JSON bodies and URL parameters),
@@ -41,6 +56,7 @@ function patternList(text) {
 function wanted(url, type, settings) {
   if (!/^https?:/i.test(url)) return false;
   if (settings.scope !== 'all' && !API_TYPES.includes(type)) return false;
+  if (settings.skipUi && patternList(UI_PATTERNS).some((re) => re.test(url))) return false;
   const include = patternList(settings.include);
   if (include.length && !include.some((re) => re.test(url))) return false;
   return !patternList(settings.exclude).some((re) => re.test(url));
@@ -205,4 +221,4 @@ function harFilename(pattern, url, date = new Date()) {
   return name.toLowerCase().endsWith('.har') ? name : `${name}.har`;
 }
 
-if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };
+if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, UI_PATTERNS, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };

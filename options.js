@@ -9,7 +9,8 @@ async function load() {
   settings = { ...DEFAULT_SETTINGS, ...(stored || {}) };
   document.querySelector(`input[name=scope][value=${settings.scope}]`).checked = true;
   for (const id of ['include', 'exclude', 'filename']) $(id).value = settings[id];
-  for (const id of ['followTabs', 'bodies', 'redact']) $(id).checked = settings[id];
+  for (const id of ['skipUi', 'followTabs', 'bodies', 'redact']) $(id).checked = settings[id];
+  $('uiPatterns').textContent = UI_PATTERNS.split('\n').join('  ');
   $('maxBodyKB').value = settings.maxBodyKB;
   showExample();
 }
@@ -23,6 +24,7 @@ async function save() {
     scope: document.querySelector('input[name=scope]:checked')?.value === 'all' ? 'all' : 'api',
     include: $('include').value,
     exclude: $('exclude').value,
+    skipUi: $('skipUi').checked,
     followTabs: $('followTabs').checked,
     bodies: $('bodies').checked,
     maxBodyKB: Math.min(102400, Math.max(1, Number($('maxBodyKB').value) || DEFAULT_SETTINGS.maxBodyKB)),

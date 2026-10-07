@@ -42,6 +42,7 @@
       <div><b>Only URLs matching</b><textarea id="include" spellcheck="false" placeholder="*/api/*"></textarea><p class="hint">One pattern per line, <code>*</code> = anything. Empty = all.</p></div>
       <div><b>Skip URLs matching</b><textarea id="exclude" spellcheck="false" placeholder="*/heartbeat*"></textarea><p class="hint">One pattern per line.</p></div>
     </div>
+    <label class="row"><input type="checkbox" id="skipUi"> <span><b>Skip WMS screen-framework calls</b><p class="hint">Menus, translations, provisioning profile, chatbot, screen configuration and metadata: large and rarely what you're investigating. Untick to record them too.</p><p class="hint">Skipped: <code id="uiPatterns"></code></p></span></label>
     <label class="row"><input type="checkbox" id="followTabs"> <span><b>Follow new tabs</b><p class="hint">Also record tabs opened from the recorded tab (e.g. WM Mobile opening in its own tab).</p></span></label>
   </section>
 

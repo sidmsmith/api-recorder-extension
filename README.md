@@ -25,6 +25,10 @@ Right-click the icon → **Options**:
 
 - **What to record** – API calls only (XHR/fetch, default) or everything;
   URL patterns to include or skip (one per line, `*` = anything).
+- **Skip WMS screen-framework calls** – on by default: leaves out the WMS
+  screens' own plumbing (menus, translations, provisioning profile, chatbot,
+  screen configuration and metadata), which is large and rarely what you're
+  investigating. Untick to record everything.
 - **Follow new tabs** – also record tabs opened from the recorded tab (on).
 - **Bodies** – save response bodies (on), skipping bodies over a size (1 MB).
   Request bodies (payloads) are always saved.
