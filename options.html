@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>API Recorder options</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --text: #202124; --muted: #5f6368; --line: #dadce0; --accent: #1a73e8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1e1f23; --card: #2a2b30; --text: #e6e6e6; --muted: #a8abb2; --line: #44464d; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px system-ui, sans-serif; }
+  main { max-width: 680px; margin: 32px auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  label.row { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
+  label.row input { margin-top: 3px; }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; }
+  textarea, input[type=text], input[type=number] {
+    font: 13px ui-monospace, Consolas, monospace; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; box-sizing: border-box;
+  }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  input[type=text] { width: 100%; }
+  input[type=number] { width: 90px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .two { grid-template-columns: 1fr; } }
+  #saved { color: #188038; font-weight: 600; opacity: 0; transition: opacity .2s; }
+  #saved.show { opacity: 1; }
+  code { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>API Recorder</h1>
+  <p class="sub">Click the toolbar icon to start recording a tab; click again to stop and download the HAR file. Changes here are saved automatically <span id="saved">✓ Saved</span></p>
+
+  <section>
+    <h2>What to record</h2>
+    <label class="row"><input type="radio" name="scope" value="api"> <span><b>API calls only</b> (XHR / fetch)<p class="hint">The calls the app makes to its server: what you'd usually inspect.</p></span></label>
+    <label class="row"><input type="radio" name="scope" value="all"> <span><b>Everything</b><p class="hint">Also pages, scripts, styles and images (bigger files).</p></span></label>
+    <div class="two">
+      <div><b>Only URLs matching</b><textarea id="include" spellcheck="false" placeholder="*/api/*"></textarea><p class="hint">One pattern per line, <code>*</code> = anything. Empty = all.</p></div>
+      <div><b>Skip URLs matching</b><textarea id="exclude" spellcheck="false" placeholder="*/heartbeat*"></textarea><p class="hint">One pattern per line.</p></div>
+    </div>
+    <label class="row"><input type="checkbox" id="followTabs"> <span><b>Follow new tabs</b><p class="hint">Also record tabs opened from the recorded tab (e.g. WM Mobile opening in its own tab).</p></span></label>
+  </section>
+
+  <section>
+    <h2>Bodies</h2>
+    <label class="row"><input type="checkbox" id="bodies"> <span><b>Save response bodies</b><p class="hint">Request bodies (payloads) are always saved.</p></span></label>
+    <p>Skip bodies larger than <input type="number" id="maxBodyKB" min="1" max="102400" step="1"> KB</p>
+  </section>
+
+  <section>
+    <h2>Privacy</h2>
+    <label class="row"><input type="checkbox" id="redact"> <span><b>Redact secrets</b> (recommended)<p class="hint">Replaces sign-in tokens and cookies with <code>[REDACTED]</code>: the Authorization, Cookie and Set-Cookie headers (and similar), and fields such as <code>access_token</code>, <code>password</code> or <code>client_secret</code> in bodies and URLs. Turn off only when you need the real values, and don't share those files.</p></span></label>
+  </section>
+
+  <section>
+    <h2>File</h2>
+    <b>File name</b>
+    <input type="text" id="filename" spellcheck="false">
+    <p class="hint"><code>{host}</code> = the site (e.g. <code>salep</code>), <code>{timestamp}</code> = YYYYMMDDHHMMSS. Example: <span id="example"></span></p>
+    <p class="hint">Files are saved to your Downloads folder automatically when you stop.</p>
+  </section>
+</main>
+<script src="har.js"></script>
+<script src="options.js"></script>
+</body>
+</html>

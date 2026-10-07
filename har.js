@@ -1,0 +1,200 @@
+// API Recorder - turning Chrome's Network events into a HAR 1.2 file.
+//
+// Pure functions (no chrome.* calls), shared by the service worker
+// (importScripts) and the tests. A "record" is what background.js collects
+// for one request from the debugger's Network events:
+//   { tabId, sent, extraRequestHeaders, response, extraResponseHeaders,
+//     finishedAt, encodedLength, failed: { errorText, canceled }, body: { text, base64Encoded },
+//     postData, redirectResponse }
+// where sent is the Network.requestWillBeSent params.
+
+const API_TYPES = ['XHR', 'Fetch'];
+
+// Default settings (the options page edits these).
+const DEFAULT_SETTINGS = {
+  scope: 'api',                 // 'api' = XHR/fetch calls only, 'all' = every request
+  include: '',                  // URL patterns, one per line, * = anything; empty = all
+  exclude: '',
+  bodies: true,                 // save response bodies
+  maxBodyKB: 1024,              // skip bodies bigger than this
+  redact: true,                 // mask secrets (headers, cookies, token fields)
+  followTabs: true,             // also record tabs opened from the recorded tab
+  filename: 'API_{host}_{timestamp}.har',
+};
+
+const SECRET_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-auth-token', 'x-api-key', 'x-csrf-token', 'x-xsrf-token'];
+const SECRET_FIELD = /^(access_?token|refresh_?token|id_?token|token|password|passwd|client_?secret|secret|api_?key)$/i;
+const REDACTED = '[REDACTED]';
+
+// "*" wildcard patterns, one per line; case-insensitive, matched anywhere in the URL.
+function patternList(text) {
+  return String(text || '').split(/\r?\n/).map((s) => s.trim()).filter((s) => s && !s.startsWith('#'))
+    .map((p) => new RegExp(p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*'), 'i'));
+}
+
+// Should this request be recorded? type is the debugger's resource type.
+function wanted(url, type, settings) {
+  if (!/^https?:/i.test(url)) return false;
+  if (settings.scope !== 'all' && !API_TYPES.includes(type)) return false;
+  const include = patternList(settings.include);
+  if (include.length && !include.some((re) => re.test(url))) return false;
+  return !patternList(settings.exclude).some((re) => re.test(url));
+}
+
+const headerList = (headers) => Object.entries(headers || {}).flatMap(([name, value]) =>
+  String(value).split('\n').map((v) => ({ name, value: v })));
+
+function queryString(url) {
+  try {
+    return [...new URL(url).searchParams].map(([name, value]) => ({ name, value }));
+  } catch {
+    return [];
+  }
+}
+
+const statusLine = (protocol) => (protocol && /^h(2|3)|^http\/2/i.test(protocol) ? 'HTTP/2.0' : 'HTTP/1.1');
+
+// One HAR entry from a record. Times: the debugger gives seconds (monotonic
+// timestamp) plus wallTime for the start; HAR wants ISO dates and ms.
+function buildEntry(rec) {
+  const { sent } = rec;
+  const req = sent.request;
+  const res = rec.redirectResponse || rec.response;
+  const started = new Date((sent.wallTime || Date.now() / 1000) * 1000);
+  const end = rec.finishedAt ?? sent.timestamp;
+  const total = Math.max(0, (end - sent.timestamp) * 1000);
+
+  const t = res?.timing;
+  const span = (a, b) => (t && t[a] >= 0 && t[b] >= 0 ? Math.max(0, t[b] - t[a]) : -1);
+  const timings = t ? {
+    blocked: t.dnsStart >= 0 ? t.dnsStart : t.connectStart >= 0 ? t.connectStart : Math.max(0, t.sendStart),
+    dns: span('dnsStart', 'dnsEnd'),
+    connect: span('connectStart', 'connectEnd'),
+    ssl: span('sslStart', 'sslEnd'),
+    send: Math.max(0, t.sendEnd - t.sendStart),
+    wait: Math.max(0, t.receiveHeadersEnd - t.sendEnd),
+    receive: Math.max(0, (end - t.requestTime) * 1000 - t.receiveHeadersEnd),
+  } : { blocked: 0, dns: -1, connect: -1, ssl: -1, send: 0, wait: total, receive: 0 };
+
+  const requestHeaders = { ...req.headers, ...(rec.extraRequestHeaders || {}) };
+  const responseHeaders = { ...(res?.headers || {}), ...(rec.extraResponseHeaders || {}) };
+  const postText = rec.postData ?? req.postData;
+  const mimeType = res?.mimeType || '';
+  const content = { size: rec.body?.size ?? (rec.encodedLength ?? 0), mimeType };
+  if (rec.body?.text !== undefined) {
+    content.text = rec.body.text;
+    if (rec.body.base64Encoded) content.encoding = 'base64';
+  }
+  if (rec.bodySkipped) content.comment = rec.bodySkipped;
+
+  return {
+    pageref: `tab_${rec.tabId}`,
+    startedDateTime: started.toISOString(),
+    time: total,
+    request: {
+      method: req.method,
+      url: req.url,
+      httpVersion: statusLine(res?.protocol),
+      cookies: [],
+      headers: headerList(requestHeaders),
+      queryString: queryString(req.url),
+      ...(postText !== undefined ? {
+        postData: { mimeType: requestHeaders['Content-Type'] || requestHeaders['content-type'] || '', text: postText },
+      } : {}),
+      headersSize: -1,
+      bodySize: postText !== undefined ? postText.length : 0,
+    },
+    response: {
+      status: res?.status ?? 0,
+      statusText: res?.statusText ?? (rec.failed ? rec.failed.errorText : ''),
+      httpVersion: statusLine(res?.protocol),
+      cookies: [],
+      headers: headerList(responseHeaders),
+      content,
+      redirectURL: rec.redirectResponse ? (responseHeaders.location || responseHeaders.Location || '') : '',
+      headersSize: -1,
+      bodySize: rec.encodedLength ?? -1,
+      ...(rec.failed ? { _error: rec.failed.errorText } : {}),
+    },
+    cache: {},
+    timings,
+    serverIPAddress: res?.remoteIPAddress || '',
+    _resourceType: (sent.type || '').toLowerCase(),
+  };
+}
+
+// Mask secret values in a JSON text (keys like access_token, password).
+function redactJson(text) {
+  text = text.replace(/\b(Bearer|Basic)\s+[A-Za-z0-9\-._~+/]+=*/g, `$1 ${REDACTED}`); // tokens echoed anywhere
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return text.replace(/((?:^|[?&])(?:access_?token|refresh_?token|id_?token|password|client_?secret)=)[^&\s]*/gi, `$1${REDACTED}`);
+  }
+  let changed = false;
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => {
+        if (SECRET_FIELD.test(k) && (typeof x === 'string' || typeof x === 'number')) { changed = true; return [k, REDACTED]; }
+        return [k, walk(x)];
+      }));
+    }
+    return v;
+  };
+  const out = walk(data);
+  return changed ? JSON.stringify(out) : text;
+}
+
+function redactEntry(entry) {
+  const maskHeaders = (list) => list.map((h) => (SECRET_HEADERS.includes(h.name.toLowerCase()) ? { ...h, value: REDACTED } : h));
+  entry.request.headers = maskHeaders(entry.request.headers);
+  entry.response.headers = maskHeaders(entry.response.headers);
+  entry.request.queryString = entry.request.queryString.map((q) => (SECRET_FIELD.test(q.name) ? { ...q, value: REDACTED } : q));
+  if (entry.request.queryString.some((q) => q.value === REDACTED)) {
+    try {
+      const u = new URL(entry.request.url);
+      for (const q of entry.request.queryString) if (q.value === REDACTED) u.searchParams.set(q.name, REDACTED);
+      entry.request.url = u.toString();
+    } catch { /* leave the URL */ }
+  }
+  if (entry.request.postData?.text) entry.request.postData.text = redactJson(entry.request.postData.text);
+  const c = entry.response.content;
+  if (c.text && !c.encoding) c.text = redactJson(c.text);
+  return entry;
+}
+
+// The whole HAR. pages: [{ tabId, title, url, startedAt }].
+function buildHar(records, pages, settings, version) {
+  const entries = records.map((r) => buildEntry(r))
+    .map((e) => (settings.redact ? redactEntry(e) : e))
+    .sort((a, b) => a.startedDateTime.localeCompare(b.startedDateTime));
+  return {
+    log: {
+      version: '1.2',
+      creator: { name: 'API Recorder', version },
+      pages: pages.map((p) => ({
+        startedDateTime: new Date(p.startedAt).toISOString(),
+        id: `tab_${p.tabId}`,
+        title: p.title || p.url || `Tab ${p.tabId}`,
+        pageTimings: {},
+      })),
+      entries,
+      ...(settings.redact ? { comment: 'Secrets (auth headers, cookies, token/password fields) are replaced with [REDACTED].' } : {}),
+    },
+  };
+}
+
+// File name from the pattern: {host}, {timestamp} (local YYYYMMDDHHMMSS).
+function harFilename(pattern, url, date = new Date()) {
+  let host = 'page';
+  try { host = new URL(url).hostname.split('.')[0] || host; } catch { /* keep default */ }
+  const stamp = [date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((n) => String(n).padStart(2, '0')).join('');
+  const name = String(pattern || DEFAULT_SETTINGS.filename).replace(/\{host\}/g, host).replace(/\{timestamp\}/g, stamp)
+    .replace(/[\\/:*?"<>|\s]+/g, '_');
+  return name.toLowerCase().endsWith('.har') ? name : `${name}.har`;
+}
+
+if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };
