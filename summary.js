@@ -85,11 +85,13 @@ function buildSummaryHtml(har, meta) {
     };
   });
   const shots = meta.shots || {};
+  const befores = meta.befores || {};
   const steps = (har.log._steps || []).map((st) => ({
     n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '', noEffect: Boolean(st.noEffect),
     inputs: (st.inputs || []).map((x) => ({ label: x.label, value: x.value })),
     checkpoints: (st.checkpoints || []).map((c) => ({ text: c.text, time: clock(new Date(c.t)) })),
     ...(shots[st.n] ? { shot: `data:image/jpeg;base64,${shots[st.n]}` } : {}),
+    ...(befores[st.n] ? { before: `data:image/jpeg;base64,${befores[st.n]}` } : {}),
   }));
   const scenario = meta.scenario || har.log._scenario || null;
   const TIER_NAMES = { gold: 'Gold / Base', standard: 'Standard', custom: 'Custom' };
@@ -172,8 +174,10 @@ function buildSummaryHtml(har, meta) {
   .inputs b { color: var(--text); font-weight: 600; }
   .check { margin: 2px 0 8px 2px; font-size: 13px; color: var(--ok); font-weight: 600; }
   .shot { margin: 2px 0 10px 2px; }
+  .shot { display: flex; gap: 12px; flex-wrap: wrap; }
+  .shot figure { margin: 0; }
   .shot img { max-width: 220px; max-height: 160px; border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in; display: block; }
-  .shot span { font-size: 11.5px; color: var(--muted); }
+  .shot figcaption { font-size: 11.5px; color: var(--muted); }
   #lightbox { position: fixed; inset: 0; background: rgba(0, 0, 0, .75); display: flex; align-items: center; justify-content: center; cursor: zoom-out; z-index: 10; }
   #lightbox img { max-width: 94vw; max-height: 94vh; border-radius: 6px; box-shadow: 0 8px 30px rgba(0, 0, 0, .5); }
   .body { display: none; border-top: 1px solid var(--line); padding: 10px 12px 14px; }
@@ -251,7 +255,7 @@ function reportScript() {
   if (before.length) groups.push({ step: 0, head: steps.length ? { n: 0, text: 'Before your first click', time: calls[before[0]].time } : null, items: before });
   for (const st of steps) groups.push({ step: st.n, head: st, items: calls.map((c, i) => i).filter((i) => calls[i].step === st.n) });
   // Typed values, checkpoints and the screenshot make a step worth showing even without API calls.
-  const extras = (g) => Boolean(g.head && (g.head.inputs?.length || g.head.checkpoints?.length || g.head.shot));
+  const extras = (g) => Boolean(g.head && (g.head.inputs?.length || g.head.checkpoints?.length || g.head.shot || g.head.before));
 
   const list = document.getElementById('list');
   // One width for the screen column (the longest name, up to 150 px) so the endpoints line up.
@@ -271,7 +275,9 @@ function reportScript() {
     const rows = g.items.map((i) => row(calls[i], i)).join('');
     const more = g.items.some((i) => calls[i].cat === 'lookup') ? `<button class="more" data-more="${gi}"></button>` : '';
     const checks = (h?.checkpoints || []).map((c) => `<div class="check">✔ Checkpoint: ${esc(c.text)} <span class="st">${c.time}</span></div>`).join('');
-    const shot = h?.shot ? `<div class="shot"><img src="${h.shot}" alt="Screen after step ${h.n}" data-zoom="1"><span>Screen after this step</span></div>` : '';
+    // "Before" only when you typed something for this step; "After" = the result.
+    const pic = (src, caption) => `<figure><img src="${src}" alt="${caption}" data-zoom="1"><figcaption>${caption}</figcaption></figure>`;
+    const shot = h?.shot || h?.before ? `<div class="shot">${h.before ? pic(h.before, 'Before (with what you entered)') : ''}${h.shot ? pic(h.shot, h.before ? 'After' : 'Screen after this step') : ''}</div>` : '';
     return `<section data-g="${gi}">${head}${inputs}${rows}${more}${checks}${shot}</section>`;
   }).join('') : '<div class="empty">No API calls were recorded.</div>';
 

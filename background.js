@@ -66,6 +66,8 @@ async function start(tab, scenario = null) {
     screens: new Map(),   // tabId -> the screen's current title
     scenario,             // { name, tier, area, customer, notes } in scenario mode
     shots: [],            // screenshots: { tabId, t (the step's action), data }
+    befores: [],          // "before" screenshots (after you typed): { tabId, t (the step's action), data }
+    pendingBefore: new Map(), // tabId -> the "before" picture taken after typing, waiting for its step
     shotTimers: new Map(), // tabId -> the step waiting for its screenshot
     settings: await getSettings(),
     startedAt: Date.now(),
@@ -161,6 +163,7 @@ function pageTracker(binding) {
     return null;
   };
   addEventListener('click', (e) => {
+    flushTyping();
     const path = e.composedPath().filter((n) => n instanceof Element);
     const el = path.find((n) => n.matches(CLICKABLE) && !inShadow(n)) || path.find((n) => !inShadow(n)) || path[0];
     // Clicking into a text box only places the cursor: Enter or the typed value is the step.
@@ -173,6 +176,22 @@ function pageTracker(binding) {
   const before = new WeakMap();
   const fieldOf = (e) => e.composedPath().find((n) => n instanceof Element && n.matches('input, textarea, select'));
   addEventListener('focusin', (e) => { const el = fieldOf(e); if (el) before.set(el, el.value); }, true);
+  // Typing or pasting into a field: tell the recorder once it pauses (it takes a
+  // "before" picture showing the value), or right before the click / Enter.
+  let dirty = false;
+  let typingTimer;
+  const flushTyping = () => {
+    clearTimeout(typingTimer);
+    if (!dirty) return;
+    dirty = false;
+    report({ kind: 'typing' });
+  };
+  addEventListener('input', (e) => {
+    if (!fieldOf(e)) return;
+    dirty = true;
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(flushTyping, 150);
+  }, true);
   addEventListener('focusout', (e) => {
     const el = fieldOf(e);
     if (!el || before.get(el) === el.value || /^(button|submit|checkbox|radio|reset|image|file)$/i.test(el.type)) return;
@@ -182,6 +201,7 @@ function pageTracker(binding) {
   }, true);
   addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+      flushTyping();
       const el = fieldOf(e) || e.composedPath()[0];
       if (!(el instanceof Element)) return;
       const label = fieldLabel(el);
@@ -219,13 +239,17 @@ function onAction(tabId, payload) {
   try { a = JSON.parse(payload); } catch { return; }
   if (a.title) session.screens.set(tabId, a.title);
   if (a.kind === 'screen') return;
+  if (a.kind === 'typing') { takeBefore(tabId); return; }
   // A page load becomes a step named after the screen ("Opened …").
   session.actions.push({
     tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t,
     ...(a.target ? { target: a.target } : {}),
     ...(a.field ? { field: a.field } : {}),
   });
-  if (STEP_KINDS.includes(a.kind)) scheduleShot(tabId, a.t);
+  if (STEP_KINDS.includes(a.kind)) {
+    claimBefore(tabId, a.t);
+    scheduleShot(tabId, a.t);
+  }
 }
 
 // ---- screenshots (scenario mode) ----------------------------------------------
@@ -263,6 +287,29 @@ function scheduleShot(tabId, actionT) {
   };
   entry.timer = setTimeout(check, 900);
   s.shotTimers.set(tabId, entry);
+}
+
+// "Before" pictures: only when you typed or pasted since the last picture,
+// taken as soon as the typing pauses (so the value is visible in the field),
+// and given to the step that follows (the GO / Enter that submits it).
+function takeBefore(tabId) {
+  const s = session;
+  if (!s?.scenario || !s.settings.screenshots) return;
+  const capture = chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'jpeg', quality: 60 })
+    .then((r) => r?.data || null, () => null);
+  s.pendingBefore.set(tabId, capture);
+  s.pending.add(capture);
+  capture.finally(() => s.pending.delete(capture));
+}
+
+function claimBefore(tabId, actionT) {
+  const s = session;
+  const capture = s?.pendingBefore.get(tabId);
+  if (!capture) return;
+  s.pendingBefore.delete(tabId);
+  const job = capture.then((data) => { if (data) s.befores.push({ tabId, t: actionT, data }); });
+  s.pending.add(job);
+  job.finally(() => s.pending.delete(job));
 }
 
 function takeShot(s, tabId, t) {
@@ -406,6 +453,11 @@ async function stop(reason) {
     const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
     if (step && !step.noEffect && !shots[step.n]) shots[step.n] = shot.data;
   }
+  const befores = {};
+  for (const shot of s.befores) {
+    const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
+    if (step && !befores[step.n]) befores[step.n] = shot.data;
+  }
   // Scenario mode: Downloads/<folder>/<tier>-<name>_<timestamp>/recording.har, .html, step-01.jpg …
   // Otherwise: API_<host>_<timestamp>.har / .html.
   const folder = scenario ? `${scenarioDir(s.settings.scenarioFolder, scenario)}/` : '';
@@ -415,10 +467,11 @@ async function stop(reason) {
   if (s.settings.outputSummary) {
     const html = buildSummaryHtml(har, {
       startedAt: s.startedAt, endedAt: Date.now(), harName: saveHar ? harName.split('/').pop() : null,
-      maxLines: s.settings.summaryLines, relevantOnly: s.settings.relevantOnly, scenario, shots,
+      maxLines: s.settings.summaryLines, relevantOnly: s.settings.relevantOnly, scenario, shots, befores,
     });
     await download(html, harName.replace(/\.har$/i, '.html'));
   }
+  for (const [n, data] of Object.entries(befores)) await download(data, `${folder}step-${String(n).padStart(2, '0')}-before.jpg`, 'image/jpeg', true);
   for (const [n, data] of Object.entries(shots)) await download(data, `${folder}step-${String(n).padStart(2, '0')}.jpg`, 'image/jpeg', true);
   const what = scenario ? `"${scenario.name}" (${s.done.length} calls, ${Object.keys(shots).length} screenshots) to Downloads\\${folder.replace(/\//g, '\\')}` : `${s.done.length} call(s) to Downloads`;
   flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${what}${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);
