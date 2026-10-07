@@ -1,6 +1,8 @@
 // API Recorder - the human-readable summary report (one self-contained HTML
 // file). Built from the HAR (after redaction), so it never shows more than
-// the HAR does. Pure functions, shared by the service worker and the tests.
+// the HAR does. Calls are grouped into steps (your clicks) and sorted into
+// data / lookup / background (har.js), so the report can open showing only
+// the relevant ones. Pure functions, shared by the service worker and tests.
 
 const SUMMARY_DEFAULT_LINES = 200;
 
@@ -28,30 +30,44 @@ function span(ms) {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
-// meta: { startedAt, endedAt (ms), harName (or null when no HAR is saved), maxLines }
+// What a step says: Clicked "Blind Receipt", Pressed Enter in "ASN" (0000123), Opened "WM Mobile".
+function stepText(st) {
+  if (st.kind === 'enter') return `Pressed Enter in “${st.label || 'a field'}”${st.value ? ` (${st.value})` : ''}`;
+  if (st.kind === 'load') return `Opened “${st.screen || 'a page'}”`;
+  return `Clicked “${st.label || 'something'}”`;
+}
+
+// meta: { startedAt, endedAt (ms), harName (or null when no HAR is saved), maxLines, relevantOnly }
 function buildSummaryHtml(har, meta) {
   const { pages, entries, comment } = har.log;
   const tabTitle = Object.fromEntries(pages.map((p) => [p.id, p.title]));
   const maxLines = meta.maxLines || SUMMARY_DEFAULT_LINES;
   const calls = entries.map((e, i) => {
     const err = e.response._error;
+    const tab = tabTitle[e.pageref] || '';
     return {
       n: i + 1,
       time: clock(new Date(e.startedDateTime)),
-      tab: tabTitle[e.pageref] || '',
+      screen: e._screen || tab,
+      tab,
       method: e.request.method,
       status: e.response.status,
       statusText: err || e.response.statusText || '',
       ms: Math.round(e.time),
       url: e.request.url,
+      cat: e._category || 'data',
+      step: e._step || 0,
       payload: prettyBody(e.request.postData?.text, null, maxLines),
       response: prettyBody(e.response.content.text, e.response.content.encoding, maxLines)
         ?? (e.response.content.comment || (err ? `(no response: ${err})` : null)),
     };
   });
+  const steps = (har.log._steps || []).map((st) => ({ n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '' }));
   const hosts = [...new Set(entries.map((e) => { try { return new URL(e.request.url).host; } catch { return ''; } }).filter(Boolean))];
-  const errors = calls.filter((c) => c.status >= 400 || c.status === 0).length;
-  const slowest = calls.reduce((m, c) => Math.max(m, c.ms), 0);
+  const bad = (c) => c.status >= 400 || c.status === 0;
+  const relevant = calls.filter((c) => c.cat === 'data');
+  const errors = calls.filter(bad).length;
+  const slowest = (relevant.length ? relevant : calls).reduce((m, c) => Math.max(m, c.ms), 0);
   const start = new Date(meta.startedAt), end = new Date(meta.endedAt);
   const rows = [
     ['Site', hosts.join(', ') || '–'],
@@ -60,7 +76,7 @@ function buildSummaryHtml(har, meta) {
     ...(meta.harName ? [['Full HAR', meta.harName]] : []),
   ];
   // Data for the page script; "<" escaped so nothing in a body can end the <script>.
-  const data = JSON.stringify(calls).replace(/</g, '\\u003c');
+  const data = JSON.stringify({ calls, steps, relevantOnly: meta.relevantOnly !== false }).replace(/</g, '\\u003c');
   const title = `API Recorder · ${hosts[0] || 'recording'} · ${day(start)} ${clock(start).slice(0, 5)}`;
 
   return `<!doctype html>
@@ -85,20 +101,30 @@ function buildSummaryHtml(har, meta) {
   .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; min-width: 76px; }
   .stat b { font-size: 18px; display: block; }
   .stat.err b { color: var(--err); }
-  .tools { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-  .tools input { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: inherit; font: inherit; }
+  .tools { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; align-items: center; }
+  .tools input[type=search] { flex: 1; min-width: 200px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: inherit; font: inherit; }
   .tools button { padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: inherit; cursor: pointer; font: inherit; }
   .tools button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-  .call { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .tools label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; padding: 0 4px; }
+  .count { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
+  .stephead { display: flex; gap: 10px; align-items: baseline; margin: 16px 0 6px; padding: 0 2px; }
+  .stephead b { font-size: 13.5px; }
+  .stephead .sn { color: var(--accent); font-weight: 700; font-size: 12.5px; }
+  .stephead .st { color: var(--muted); font-size: 12.5px; }
+  .call { background: var(--card); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
   .call.err { box-shadow: inset 4px 0 0 var(--err); } /* inner edge: rows stay aligned */
+  .call.background { opacity: .62; }
   .head { display: grid; grid-template-columns: 30px 58px 40px 34px var(--tabw, 110px) minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 12px; cursor: pointer; }
-  .tab { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); background: var(--code); border-radius: 10px; padding: 1px 8px; }
   .head:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .tab { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); background: var(--code); border-radius: 10px; padding: 1px 8px; }
   .n, .ms, .time { color: var(--muted); font-size: 12.5px; }
   .method { font-weight: 700; font-size: 12px; }
   .status { font-weight: 700; }
   .status.ok { color: var(--ok); } .status.bad { color: var(--err); }
   .path { font-family: ui-monospace, Consolas, monospace; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 0 7px; margin-left: 6px; font-family: system-ui, sans-serif; }
+  .more { display: block; width: 100%; text-align: left; margin: 0 0 6px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 8px; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12.5px; }
+  .more:hover { color: var(--accent); border-color: var(--accent); }
   .body { display: none; border-top: 1px solid var(--line); padding: 10px 12px 14px; }
   .call.open .body { display: block; }
   .url { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--muted); word-break: break-all; margin-bottom: 8px; }
@@ -112,6 +138,7 @@ function buildSummaryHtml(har, meta) {
   .none { color: var(--muted); font-style: italic; }
   .empty { color: var(--muted); padding: 20px; text-align: center; }
   .note { color: var(--muted); font-size: 12.5px; margin-top: 18px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -119,82 +146,146 @@ function buildSummaryHtml(har, meta) {
   <h1>API Recorder summary</h1>
   <table class="info">${rows.map(([k, v]) => `<tr><th>${escHtml(k)}</th><td>${escHtml(v)}</td></tr>`).join('')}</table>
   <div class="stats">
-    <div class="stat"><b>${calls.length}</b>calls</div>
-    <div class="stat"><b>${calls.length - errors}</b>OK</div>
+    <div class="stat"><b>${relevant.length}</b>relevant</div>
+    <div class="stat"><b>${calls.length}</b>calls in all</div>
     <div class="stat${errors ? ' err' : ''}"><b>${errors}</b>error${errors === 1 ? '' : 's'}</div>
-    <div class="stat"><b>${slowest >= 1000 ? `${(slowest / 1000).toFixed(1)} s` : `${slowest} ms`}</b>slowest</div>
+    <div class="stat"><b>${slowest >= 1000 ? `${(slowest / 1000).toFixed(1)} s` : `${slowest} ms`}</b>slowest${relevant.length ? ' relevant' : ''}</div>
   </div>
   <div class="tools">
-    <input id="q" placeholder="Filter by URL, payload or response text…">
+    <input type="search" id="q" placeholder="Filter by URL, payload or response text…">
+    <label title="Hide the app's background calls (feature flags, chat, permissions, settings, icons); supporting lookups are folded under each step"><input type="checkbox" id="relevant"> Relevant calls only</label>
     <button id="all" class="on">All</button>
     <button id="errs">Errors only</button>
     <button id="expand">Expand all</button>
   </div>
+  <p class="count" id="count"></p>
   <div id="list"></div>
-  <p class="note">${escHtml(comment || '')} Click a call to see its payload and response.</p>
+  <p class="note">${escHtml(comment || '')} Click a call to see its payload and response. Steps are your clicks while recording; a call belongs to the last step before it.</p>
 </main>
-<script id="calls" type="application/json">${data}</script>
-<script>
-const calls = JSON.parse(document.getElementById('calls').textContent);
-const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-// Light JSON coloring on the escaped text: keys, strings, numbers/literals.
-const color = (t) => esc(t)
-  .replace(/("(?:[^"\\\\\\n]|\\\\.)*")(\\s*:)/g, '<span class="k">$1</span>$2')
-  .replace(/(:\\s*|^\\s*|\\[\\s*|,\\s*)("(?:[^"\\\\\\n]|\\\\.)*")/gm, '$1<span class="s">$2</span>')
-  .replace(/(:\\s*|^\\s*)(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|true|false|null)(?=\\s*[,\\]}]?\\s*$)/gm, '$1<span class="d">$2</span>');
-const pane = (title, text, key) => '<div class="pane"><h3>' + title + (text == null ? '' : '<button data-copy="' + key + '">Copy</button>') + '</h3>'
-  + (text == null ? '<div class="none">none</div>' : '<pre>' + color(text) + '</pre>') + '</div>';
-const path = (u) => { try { const x = new URL(u); return x.pathname + x.search; } catch { return u; } };
-const list = document.getElementById('list');
-// One width for the tab column (the longest tab name, up to 150 px) so the endpoints line up.
-const ruler = document.createElement('span');
-ruler.className = 'tab';
-ruler.style.cssText = 'position:absolute;visibility:hidden;max-width:none';
-document.body.append(ruler);
-const tabWidth = Math.max(40, ...calls.map((c) => { ruler.textContent = c.tab || '–'; return ruler.offsetWidth; }));
-ruler.remove();
-list.style.setProperty('--tabw', Math.min(150, tabWidth + 2) + 'px');
-list.innerHTML = calls.length ? calls.map((c, i) => {
-  const bad = c.status >= 400 || c.status === 0;
-  return '<div class="call' + (bad ? ' err' : '') + '" data-i="' + i + '"><div class="head">'
-    + '<span class="n">#' + c.n + '</span><span class="time">' + c.time + '</span><span class="method">' + esc(c.method) + '</span>'
-    + '<span class="status ' + (bad ? 'bad' : 'ok') + '" title="' + esc(c.statusText) + '">' + (c.status || 'ERR') + '</span>'
-    + '<span class="tab" title="' + esc(c.tab) + '">' + esc(c.tab || '–') + '</span>'
-    + '<span class="path" title="' + esc(c.url) + '">' + esc(path(c.url)) + '</span><span class="ms">' + c.ms.toLocaleString('en-US') + ' ms</span></div>'
-    + '<div class="body"><div class="url">' + esc(c.url) + (c.tab ? ' · tab ' + esc(c.tab) : '') + (c.statusText ? ' · ' + esc(c.statusText) : '') + '</div>'
-    + '<div class="panes">' + pane('Payload', c.payload, i + ':p') + pane('Response', c.response, i + ':r') + '</div></div></div>';
-}).join('') : '<div class="empty">No API calls were recorded.</div>';
-list.addEventListener('click', (e) => {
-  const copy = e.target.closest('[data-copy]');
-  if (copy) {
-    const [i, k] = copy.dataset.copy.split(':');
-    navigator.clipboard.writeText(k === 'p' ? calls[i].payload : calls[i].response).then(() => { copy.textContent = 'Copied'; });
-    return;
-  }
-  e.target.closest('.head')?.parentElement.classList.toggle('open');
-});
-let errorsOnly = false;
-const apply = () => {
-  const q = document.getElementById('q').value.toLowerCase();
-  document.querySelectorAll('.call').forEach((el) => {
-    const c = calls[el.dataset.i];
-    const bad = c.status >= 400 || c.status === 0;
-    el.hidden = (errorsOnly && !bad) || (q && !(c.url + ' ' + (c.payload || '') + ' ' + (c.response || '')).toLowerCase().includes(q));
-  });
-};
-const allBtn = document.getElementById('all'), errBtn = document.getElementById('errs');
-document.getElementById('q').addEventListener('input', apply);
-allBtn.onclick = () => { errorsOnly = false; allBtn.classList.add('on'); errBtn.classList.remove('on'); apply(); };
-errBtn.onclick = () => { errorsOnly = true; errBtn.classList.add('on'); allBtn.classList.remove('on'); apply(); };
-document.getElementById('expand').onclick = (e) => {
-  const open = e.target.textContent === 'Expand all';
-  document.querySelectorAll('.call').forEach((el) => el.classList.toggle('open', open));
-  e.target.textContent = open ? 'Collapse all' : 'Expand all';
-};
-</script>
+<script id="data" type="application/json">${data}</script>
+<script>(${reportScript})();</script>
 </body>
 </html>
 `;
 }
 
-if (typeof module !== 'undefined') module.exports = { buildSummaryHtml, prettyBody, SUMMARY_DEFAULT_LINES };
+// Runs inside the report page (inserted as source text, so it can't use
+// anything outside itself).
+function reportScript() {
+  const { calls, steps, relevantOnly } = JSON.parse(document.getElementById('data').textContent);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // Light JSON coloring on the escaped text: keys, strings, numbers/literals.
+  const color = (t) => esc(t)
+    .replace(/(&quot;(?:(?!&quot;).)*?&quot;)(\s*:)/g, '<span class="k">$1</span>$2')
+    .replace(/(:\s*|^\s*|\[\s*|,\s*)(&quot;(?:(?!&quot;).)*?&quot;)/gm, '$1<span class="s">$2</span>')
+    .replace(/(:\s*|^\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)(?=\s*[,\]}]?\s*$)/gm, '$1<span class="d">$2</span>');
+  const pane = (title, text, key) => `<div class="pane"><h3>${title}${text == null ? '' : `<button data-copy="${key}">Copy</button>`}</h3>${
+    text == null ? '<div class="none">none</div>' : `<pre>${color(text)}</pre>`}</div>`;
+  const path = (u) => { try { const x = new URL(u); return x.pathname + x.search; } catch { return u; } };
+  const isBad = (c) => c.status >= 400 || c.status === 0;
+  const CAT_LABEL = { lookup: 'lookup', background: 'background' };
+
+  const row = (c, i) => `<div class="call ${c.cat}${isBad(c) ? ' err' : ''}" data-i="${i}"><div class="head">
+    <span class="n">#${c.n}</span><span class="time">${c.time}</span><span class="method">${esc(c.method)}</span>
+    <span class="status ${isBad(c) ? 'bad' : 'ok'}" title="${esc(c.statusText)}">${c.status || 'ERR'}</span>
+    <span class="tab" title="Screen: ${esc(c.screen)}${c.tab && c.tab !== c.screen ? ` · tab ${esc(c.tab)}` : ''}">${esc(c.screen || '–')}</span>
+    <span class="path" title="${esc(c.url)}">${esc(path(c.url))}${CAT_LABEL[c.cat] ? `<span class="cat">${CAT_LABEL[c.cat]}</span>` : ''}</span>
+    <span class="ms">${c.ms.toLocaleString('en-US')} ms</span></div>
+    <div class="body"><div class="url">${esc(c.url)}${c.screen ? ` · ${esc(c.screen)}` : ''}${c.statusText ? ` · ${esc(c.statusText)}` : ''}</div>
+    <div class="panes">${pane('Payload', c.payload, `${i}:p`)}${pane('Response', c.response, `${i}:r`)}</div></div></div>`;
+
+  // Groups: one per step that has calls (step 0 = before your first click).
+  const groups = [];
+  const byStep = new Map();
+  calls.forEach((c, i) => {
+    if (!byStep.has(c.step)) {
+      const st = steps.find((s) => s.n === c.step);
+      const g = { step: c.step, head: st ? st : (steps.length ? { n: 0, text: 'Before your first click', time: c.time } : null), items: [] };
+      byStep.set(c.step, g);
+      groups.push(g);
+    }
+    byStep.get(c.step).items.push(i);
+  });
+
+  const list = document.getElementById('list');
+  // One width for the screen column (the longest name, up to 150 px) so the endpoints line up.
+  const ruler = document.createElement('span');
+  ruler.className = 'tab';
+  ruler.style.cssText = 'position:absolute;visibility:hidden;max-width:none';
+  document.body.append(ruler);
+  const tabWidth = Math.max(40, ...calls.map((c) => { ruler.textContent = c.screen || '–'; return ruler.offsetWidth; }));
+  ruler.remove();
+  list.style.setProperty('--tabw', `${Math.min(150, tabWidth + 2)}px`);
+
+  list.innerHTML = calls.length ? groups.map((g, gi) => {
+    const head = g.head ? `<div class="stephead" data-g="${gi}"><span class="sn">${g.head.n ? `STEP ${g.head.n}` : 'START'}</span><b>${esc(g.head.text)}</b><span class="st">${g.head.time}${g.head.screen ? ` · ${esc(g.head.screen)}` : ''}</span></div>` : '';
+    // Every call in time order; lookups are folded in place while "relevant only" is on.
+    const rows = g.items.map((i) => row(calls[i], i)).join('');
+    const more = g.items.some((i) => calls[i].cat === 'lookup') ? `<button class="more" data-more="${gi}"></button>` : '';
+    return `<section data-g="${gi}">${head}${rows}${more}</section>`;
+  }).join('') : '<div class="empty">No API calls were recorded.</div>';
+
+  const relevantBox = document.getElementById('relevant');
+  relevantBox.checked = relevantOnly;
+  const openLookups = new Set();
+  let errorsOnly = false;
+
+  const apply = () => {
+    const q = document.getElementById('q').value.toLowerCase();
+    const relOnly = relevantBox.checked;
+    const passes = (c) => (!errorsOnly || isBad(c)) && (!q || `${c.url} ${c.screen} ${c.payload || ''} ${c.response || ''}`.toLowerCase().includes(q));
+    let shown = 0;
+    groups.forEach((g, gi) => {
+      const section = list.querySelector(`section[data-g="${gi}"]`);
+      let any = false;
+      for (const i of g.items) {
+        const c = calls[i];
+        let visible = passes(c);
+        if (relOnly && c.cat === 'background') visible = false;
+        if (relOnly && c.cat === 'lookup' && !openLookups.has(gi)) visible = false;
+        list.querySelector(`.call[data-i="${i}"]`).hidden = !visible;
+        if (visible) { shown++; any = true; }
+      }
+      // Folded lookups: "+ 5 supporting lookups" (only while relevant-only).
+      const lk = g.items.filter((i) => calls[i].cat === 'lookup' && passes(calls[i]));
+      const more = list.querySelector(`.more[data-more="${gi}"]`);
+      if (more) {
+        more.hidden = !relOnly || !lk.length;
+        more.textContent = `${openLookups.has(gi) ? '−' : '+'} ${lk.length} supporting lookup${lk.length === 1 ? '' : 's'} (reference data)`;
+        if (relOnly && lk.length) any = true;
+      }
+      section.hidden = !any;
+    });
+    document.getElementById('count').textContent = `Showing ${shown} of ${calls.length} calls${relOnly ? ' · background calls hidden' : ''}`;
+  };
+
+  list.addEventListener('click', (e) => {
+    const copy = e.target.closest('[data-copy]');
+    if (copy) {
+      const [i, k] = copy.dataset.copy.split(':');
+      navigator.clipboard.writeText(k === 'p' ? calls[i].payload : calls[i].response).then(() => { copy.textContent = 'Copied'; });
+      return;
+    }
+    const more = e.target.closest('[data-more]');
+    if (more) {
+      const gi = Number(more.dataset.more);
+      if (openLookups.has(gi)) openLookups.delete(gi); else openLookups.add(gi);
+      apply();
+      return;
+    }
+    e.target.closest('.head')?.parentElement.classList.toggle('open');
+  });
+  const allBtn = document.getElementById('all'), errBtn = document.getElementById('errs');
+  document.getElementById('q').addEventListener('input', apply);
+  relevantBox.addEventListener('change', apply);
+  allBtn.onclick = () => { errorsOnly = false; allBtn.classList.add('on'); errBtn.classList.remove('on'); apply(); };
+  errBtn.onclick = () => { errorsOnly = true; errBtn.classList.add('on'); allBtn.classList.remove('on'); apply(); };
+  document.getElementById('expand').onclick = (e) => {
+    const open = e.target.textContent === 'Expand all';
+    list.querySelectorAll('.call:not([hidden])').forEach((el) => el.classList.toggle('open', open));
+    e.target.textContent = open ? 'Collapse all' : 'Expand all';
+  };
+  apply();
+}
+
+if (typeof module !== 'undefined') module.exports = { buildSummaryHtml, prettyBody, stepText, SUMMARY_DEFAULT_LINES };

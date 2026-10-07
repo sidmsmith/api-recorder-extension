@@ -62,6 +62,8 @@ async function start(tab) {
     done: [],           // finished records, in order
     pending: new Set(), // body/post-data fetches in progress
     following: new Set(), // new tabs being attached
+    actions: [],          // your clicks / Enter / screen changes (summary steps)
+    screens: new Map(),   // tabId -> the screen's current title
     settings: await getSettings(),
     startedAt: Date.now(),
   };
@@ -83,7 +85,68 @@ async function attach(tab) {
   await chrome.debugger.attach(target, '1.3');
   session.tabs.add(tab.id);
   session.pages.set(tab.id, { tabId: tab.id, url: tab.url || tab.pendingUrl || '', title: tab.title || '', startedAt: Date.now() });
+  session.screens.set(tab.id, tab.title || '');
   await chrome.debugger.sendCommand(target, 'Network.enable', { maxPostDataSize: 1024 * 1024 });
+  if (session.settings.trackClicks) await installTracker(target).catch((e) => console.warn('API Recorder: no click tracking', e));
+}
+
+// ---- your actions (for the summary's steps) ---------------------------------
+// A small listener in the recorded page reports clicks, Enter and screen
+// changes through a debugger binding. It reads labels (button text, field
+// names) and the value of a field you press Enter in, never password-like
+// fields. Installed for the current page and every page loaded afterwards.
+
+const BINDING = '__apiRecorderAction';
+
+function pageTracker() {
+  if (window.__apiRecorderTracker) return;
+  window.__apiRecorderTracker = true;
+  const report = (o) => {
+    try { window.__apiRecorderAction(JSON.stringify({ ...o, t: Date.now(), title: document.title })); } catch (e) { /* binding gone */ }
+  };
+  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const CLICKABLE = 'button, a, [role=button], [role=menuitem], [role=tab], [role=option], [role=row], [role=gridcell], ion-item, ion-button, mat-option, li, tr, td, label, summary, input, select';
+  const labelOf = (el) => clean(el.getAttribute('aria-label') || el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || el.tagName.toLowerCase());
+  addEventListener('click', (e) => {
+    const path = e.composedPath().filter((n) => n instanceof Element);
+    const el = path.find((n) => n.matches(CLICKABLE)) || path[0];
+    // Clicking into a text box only places the cursor: Enter there is the step.
+    if (!el || (el.matches('textarea, input') && !/^(button|submit|checkbox|radio|reset|image|file|color|range)$/i.test(el.type))) return;
+    report({ kind: 'click', label: labelOf(el) });
+  }, true);
+  addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const el = e.composedPath().find((n) => n instanceof Element && n.matches('input, textarea, select')) || e.composedPath()[0];
+    if (!(el instanceof Element)) return;
+    const field = clean(el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name') || el.id || el.tagName.toLowerCase());
+    const secret = el.type === 'password' || /pass|pin|secret|token/i.test(field);
+    report({ kind: 'enter', label: field, value: secret ? '' : clean(el.value).slice(0, 40) });
+  }, true);
+  // Screen changes (single-page apps change the title or address without a page load).
+  let last = document.title + location.href;
+  setInterval(() => {
+    const now = document.title + location.href;
+    if (now !== last) { last = now; report({ kind: 'screen' }); }
+  }, 400);
+  report({ kind: 'load' });
+}
+
+async function installTracker(target) {
+  const source = `(${pageTracker})();`;
+  await chrome.debugger.sendCommand(target, 'Runtime.enable');
+  await chrome.debugger.sendCommand(target, 'Runtime.addBinding', { name: BINDING });
+  await chrome.debugger.sendCommand(target, 'Page.enable');
+  await chrome.debugger.sendCommand(target, 'Page.addScriptToEvaluateOnNewDocument', { source });
+  await chrome.debugger.sendCommand(target, 'Runtime.evaluate', { expression: source }).catch(() => {});
+}
+
+function onAction(tabId, payload) {
+  let a;
+  try { a = JSON.parse(payload); } catch { return; }
+  if (a.title) session.screens.set(tabId, a.title);
+  if (a.kind === 'screen') return;
+  // A page load becomes a step named after the screen ("Opened …").
+  session.actions.push({ tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t });
 }
 
 // Tabs opened by a recorded tab (e.g. WM Mobile opening in a new tab with
@@ -112,7 +175,12 @@ chrome.debugger.onDetach.addListener(async (source, reason) => {
 });
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (!session || !session.tabs.has(source.tabId) || !method.startsWith('Network.')) return;
+  if (!session || !session.tabs.has(source.tabId)) return;
+  if (method === 'Runtime.bindingCalled') {
+    if (params.name === BINDING) onAction(source.tabId, params.payload);
+    return;
+  }
+  if (!method.startsWith('Network.')) return;
   const key = `${source.tabId}:${params.requestId}`;
   const rec = session.records.get(key);
   switch (method) {
@@ -126,7 +194,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       if (!wanted(params.request.url, params.type, session.settings)) return;
       const extra = session.extra.get(key);
       session.extra.delete(key);
-      session.records.set(key, { tabId: source.tabId, sent: params, extraRequestHeaders: extra?.request, extraResponseHeaders: extra?.response });
+      session.records.set(key, { tabId: source.tabId, sent: params, screen: session.screens.get(source.tabId), extraRequestHeaders: extra?.request, extraResponseHeaders: extra?.response });
       break;
     }
     case 'Network.requestWillBeSentExtraInfo':
@@ -203,14 +271,14 @@ async function stop(reason) {
     const tab = await chrome.tabs.get(page.tabId).catch(() => null);
     if (tab) Object.assign(page, { url: tab.url || page.url, title: tab.title || page.title });
   }
-  const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version);
+  const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version, s.actions);
   const rootUrl = s.pages.get(s.rootTabId)?.url || '';
   // Full details (HAR) and/or the summary report, with matching names.
   const harName = harFilename(s.settings.filename, rootUrl);
   const saveHar = s.settings.outputHar || !s.settings.outputSummary;
   if (saveHar) await download(JSON.stringify(har, null, 2), harName);
   if (s.settings.outputSummary) {
-    const html = buildSummaryHtml(har, { startedAt: s.startedAt, endedAt: Date.now(), harName: saveHar ? harName : null, maxLines: s.settings.summaryLines });
+    const html = buildSummaryHtml(har, { startedAt: s.startedAt, endedAt: Date.now(), harName: saveHar ? harName : null, maxLines: s.settings.summaryLines, relevantOnly: s.settings.relevantOnly });
     await download(html, harName.replace(/\.har$/i, '.html'));
   }
   flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${s.done.length} call(s) to Downloads${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);

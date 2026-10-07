@@ -24,6 +24,10 @@ const DEFAULT_SETTINGS = {
   outputHar: true,              // save the full HAR
   outputSummary: true,          // save the HTML summary report (summary.js)
   summaryLines: 200,            // longest body shown in the summary, in lines
+  trackClicks: true,            // note clicks / Enter / screen changes to group calls into steps
+  relevantOnly: true,           // the summary opens showing relevant calls only
+  alwaysShow: '',               // URL patterns always treated as relevant (summary)
+  alwaysHide: '',               // URL patterns always treated as background (summary)
 };
 
 // Manhattan WMS screen-framework calls: menus, translations, provisioning,
@@ -39,6 +43,67 @@ const UI_PATTERNS = [
   '*.metadata.json*',
   '*/userFilter/search*',
 ].join('\n');
+
+// ---- relevance (summary report) ----------------------------------------------
+// Every call is "data" (what you clicked for: searches, screen data, mobile
+// transactions, anything that creates or changes data), "lookup" (supporting
+// reference data, e.g. dropdown code lists) or "background" (the app's own
+// chatter: feature flags, chat, permissions, preferences, settings, pings,
+// icons). Learned from WMS recordings; your own patterns in the options win.
+
+const BACKGROUND_PATTERNS = [
+  '*/feature-flags/*', '*/featureFlags*', '*/accessRequest/*',
+  '*/messenger/*', '*/chatbot/*', '*/assistant/*', '*/agent/configurations*',
+  '*/grant/list/*', '*/grantsForMe*',
+  '*/authserver/*', '*/zuulserver/*', '*/readtimeout*',
+  '*/getValueForProperty/*', '*/commonConfigParam/*', '*/warehouseConfigParam/*', '*/isBUSetupEnabled*',
+  '*/userFontSize/*', '*/userVoicePreference/*', '*/userDefaults/*', '*/userPreferredFilter/*',
+  '*/employeeActivityTracking/*', '*/facilityConfigData*',
+  '*/listLocationsForUser*', '*/organization/user/search*', '*/organization/location/*',
+  '*/initLoginServer*', '*/activitystream*', '*/heartbeat*', '*/keepalive*',
+].join('\n');
+const LOOKUP_PATTERNS = ['*/reference-data*', '*/entity/lookup*', '*/codes/*'].join('\n');
+const DATA_PATTERNS = [
+  '*/entity/search*', '*/entity/invoke*', '*/entity/save*', '*/entity/create*', '*/entity/update*',
+  '*/hierarchy/*', '*/workflow/init*', '*/workflow/execute/*',
+].join('\n');
+const STATIC_FILE = /\.(svg|png|jpe?g|gif|ico|webp|woff2?|ttf|css|js)(\?|$)/i;
+const PING = /\/ping(\?|$)/i;
+// A GET within this long after a click or Enter counts as triggered by it.
+const TRIGGER_MS = 5000;
+
+// Steps = your actions (clicks, Enter, a tab opening) in time order.
+// actions: [{ tabId, kind: 'click'|'enter'|'load'|'screen', label, value, title, t }]
+function stepsFrom(actions) {
+  return (actions || []).filter((a) => a.kind === 'click' || a.kind === 'enter' || a.kind === 'load')
+    .sort((a, b) => a.t - b.t)
+    .map((a, i) => ({ n: i + 1, t: a.t, kind: a.kind, label: a.label || '', value: a.value || '', screen: a.title || '', tabId: a.tabId }));
+}
+
+function classify(entry, step, settings) {
+  const url = entry.request.url;
+  const path = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+  const match = (patterns) => patternList(patterns).some((re) => re.test(url));
+  if (match(settings.alwaysShow)) return 'data';
+  if (match(settings.alwaysHide)) return 'background';
+  if (STATIC_FILE.test(path) || PING.test(path) || match(BACKGROUND_PATTERNS)) return 'background';
+  if (match(LOOKUP_PATTERNS)) return 'lookup';
+  if (match(DATA_PATTERNS)) return 'data';
+  if (entry.request.method !== 'GET') return 'data'; // creates or changes something
+  const started = new Date(entry.startedDateTime).getTime();
+  return step && started - step.t <= TRIGGER_MS ? 'data' : 'background';
+}
+
+// Adds _step (0 = before your first action), _category and keeps _screen.
+function annotate(entries, steps, settings) {
+  for (const e of entries) {
+    const started = new Date(e.startedDateTime).getTime();
+    let step = null;
+    for (const s of steps) { if (s.t <= started + 50) step = s; else break; }
+    e._step = step ? step.n : 0;
+    e._category = classify(e, step, settings);
+  }
+}
 
 const SECRET_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie', 'x-auth-token', 'x-api-key', 'x-csrf-token', 'x-xsrf-token'];
 // Field names whose values are secrets (in JSON bodies and URL parameters),
@@ -192,11 +257,15 @@ function redactEntry(entry) {
   return entry;
 }
 
-// The whole HAR. pages: [{ tabId, title, url, startedAt }].
-function buildHar(records, pages, settings, version) {
-  const entries = records.map((r) => buildEntry(r))
+// The whole HAR. pages: [{ tabId, title, url, startedAt }]. actions: your
+// clicks etc. (see stepsFrom); they become log._steps, and each entry gets
+// _step, _category and _screen (the screen's title when the call was made).
+function buildHar(records, pages, settings, version, actions = []) {
+  const steps = stepsFrom(actions);
+  const entries = records.map((r) => ({ ...buildEntry(r), ...(r.screen ? { _screen: r.screen } : {}) }))
     .map((e) => (settings.redact ? redactEntry(e) : e))
     .sort((a, b) => a.startedDateTime.localeCompare(b.startedDateTime));
+  annotate(entries, steps, settings);
   return {
     log: {
       version: '1.2',
@@ -208,6 +277,7 @@ function buildHar(records, pages, settings, version) {
         pageTimings: {},
       })),
       entries,
+      _steps: steps.map((st) => ({ ...st, time: new Date(st.t).toISOString(), value: settings.redact ? redactJson(st.value) : st.value })),
       ...(settings.redact ? { comment: 'Secrets (auth headers, cookies, token/password fields) are replaced with [REDACTED].' } : {}),
     },
   };
@@ -224,4 +294,4 @@ function harFilename(pattern, url, date = new Date()) {
   return name.toLowerCase().endsWith('.har') ? name : `${name}.har`;
 }
 
-if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, UI_PATTERNS, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };
+if (typeof module !== 'undefined') module.exports = { DEFAULT_SETTINGS, UI_PATTERNS, stepsFrom, classify, annotate, wanted, buildEntry, buildHar, redactEntry, redactJson, harFilename, patternList };

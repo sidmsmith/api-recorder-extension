@@ -18,11 +18,28 @@ download a **HAR** file.
    - `API_salep_20261007141530.har` – the full details. Open it in DevTools
      (Network panel → drag the file in) or any HAR viewer, or send it for
      analysis.
-   - `API_salep_20261007141530.html` – the **summary report**: the site, time
-     and tabs, counts (calls, OK, errors, slowest), then every call as a row
-     (time, method, status, endpoint, duration). Click a call to see its
-     payload and response side by side, with Copy buttons; search them, or
-     show errors only.
+   - `API_salep_20261007141530.html` – the **summary report** (see below).
+
+## The summary report
+
+- **Steps:** your clicks while recording ("Clicked “Blind Receipt”",
+  "Pressed Enter in “ASN” (0000123)", "Opened “WM Mobile”"), each with the
+  calls it triggered and the screen you were on.
+- **Relevant calls only** (on when it opens): the data you clicked for –
+  searches, screen data, mobile transactions, anything that creates or
+  changes data. Supporting lookups (dropdown lists) are folded under each
+  step ("+ 5 supporting lookups"); the app's background calls (feature flags,
+  chat, permissions, preferences, settings, pings, icons) are hidden. Untick
+  it to see every call, background ones greyed out. "Showing 4 of 61 calls"
+  says how much is hidden.
+- Every call is a row (number, time, method, status, screen, endpoint,
+  duration); click it for the payload and response side by side, with Copy
+  buttons. Search, Errors only, Expand all.
+- The HAR keeps everything, plus the steps (`log._steps`) and each call's
+  `_step`, `_category` (data / lookup / background) and `_screen`.
+
+Not quite right for a screen? Add URL patterns under **Always relevant** or
+**Always background** in the options.
 
 ## Options
 
@@ -38,6 +55,8 @@ Right-click the icon → **Options**:
 - **Bodies** – save response bodies (on), skipping bodies over a size (1 MB).
   Request bodies (payloads) are always saved.
 - **Redact secrets** – on by default; see Privacy.
+- **Summary report** – group calls by your clicks (on); open showing relevant
+  calls only (on); your own Always relevant / Always background patterns.
 - **Files** – full details (HAR) and/or the summary report (HTML), both on;
   how many lines of each payload/response the summary shows (200).
 - **File name** – `{host}` and `{timestamp}` (YYYYMMDDHHMMSS) placeholders.

@@ -47,6 +47,16 @@
   </section>
 
   <section>
+    <h2>Summary report</h2>
+    <label class="row"><input type="checkbox" id="trackClicks"> <span><b>Group calls by your clicks</b><p class="hint">While recording, note what you click (button and menu names), where you press Enter (and that field's value, never passwords) and screen changes. The summary shows each as a step with the calls it triggered, and names each call's screen at that moment.</p></span></label>
+    <label class="row"><input type="checkbox" id="relevantOnly"> <span><b>Open showing relevant calls only</b><p class="hint">The data you clicked for: searches, screen data, mobile transactions and anything that creates or changes data. Supporting lookups (dropdown lists) are folded under each step; the app's background calls (feature flags, chat, permissions, settings, icons) are hidden. One click in the report shows everything.</p></span></label>
+    <div class="two">
+      <div><b>Always relevant</b><textarea id="alwaysShow" spellcheck="false" placeholder="*/myImportantApi/*"></textarea><p class="hint">URL patterns to always show, one per line.</p></div>
+      <div><b>Always background</b><textarea id="alwaysHide" spellcheck="false" placeholder="*/somethingNoisy*"></textarea><p class="hint">URL patterns to always hide.</p></div>
+    </div>
+  </section>
+
+  <section>
     <h2>Bodies</h2>
     <label class="row"><input type="checkbox" id="bodies"> <span><b>Save response bodies</b><p class="hint">Request bodies (payloads) are always saved.</p></span></label>
     <p>Skip bodies larger than <input type="number" id="maxBodyKB" min="1" max="102400" step="1"> KB</p>
