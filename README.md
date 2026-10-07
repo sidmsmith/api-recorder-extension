@@ -36,7 +36,10 @@ panel instead of starting at once:
 4. **Stop & save.** Everything goes into one folder:
    `Downloads\scenario_library_inbox\<tier>-<name>_<timestamp>\` with
    `recording.har`, `recording.html` (titled with the scenario) and a
-   screenshot after each step (`step-01.jpg`, … – option, on).
+   screenshot after each step (`step-01-2-after.jpg`, … – option, on), plus a
+   "before" picture with your value in the field when you typed or pasted
+   something for that step (`step-04-1-before.jpg`). The names keep the
+   pictures in order in any file list or image viewer.
 
 What a recording notes about you: clicks (the button or menu text, plus
 what was clicked – element, id, classes – for a later replay), Enter in a

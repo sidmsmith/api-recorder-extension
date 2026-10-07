@@ -471,8 +471,11 @@ async function stop(reason) {
     });
     await download(html, harName.replace(/\.har$/i, '.html'));
   }
-  for (const [n, data] of Object.entries(befores)) await download(data, `${folder}step-${String(n).padStart(2, '0')}-before.jpg`, 'image/jpeg', true);
-  for (const [n, data] of Object.entries(shots)) await download(data, `${folder}step-${String(n).padStart(2, '0')}.jpg`, 'image/jpeg', true);
+  // step-04-1-before.jpg, step-04-2-after.jpg: in order in any file list or
+  // image viewer (with step-04.jpg / step-04-before.jpg a natural sort, as in
+  // IrfanView, showed the after picture first).
+  for (const [n, data] of Object.entries(befores)) await download(data, `${folder}step-${String(n).padStart(2, '0')}-1-before.jpg`, 'image/jpeg', true);
+  for (const [n, data] of Object.entries(shots)) await download(data, `${folder}step-${String(n).padStart(2, '0')}-2-after.jpg`, 'image/jpeg', true);
   const what = scenario ? `"${scenario.name}" (${s.done.length} calls, ${Object.keys(shots).length} screenshots) to Downloads\\${folder.replace(/\//g, '\\')}` : `${s.done.length} call(s) to Downloads`;
   flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${what}${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);
   chrome.action.setBadgeBackgroundColor({ color: '#188038' });
