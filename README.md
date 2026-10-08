@@ -52,7 +52,9 @@ panel instead of starting at once:
    `recording.har`, `recording.html` (titled with the scenario) and a
    screenshot after each step (`step-01-2-after.jpg`, … – option, on), plus a
    "before" picture with your value in the field when you typed or pasted
-   something for that step (`step-04-1-before.jpg`). The names keep the
+   something for that step (`step-04-1-before.jpg`; WM Mobile's "Loading...."
+   overlay is left out of it, since a scanner or quick Enter brings it up
+   before the picture is taken). The names keep the
    pictures in order in any file list or image viewer. Other tools' overlays
    (by default Claude in Chrome's glowing border and cursor) are hidden for
    the moment each picture is taken (option, on; the elements are listed in

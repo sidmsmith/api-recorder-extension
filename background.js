@@ -378,7 +378,12 @@ function scheduleShot(tabId, actionT) {
 // Screenshot with other tools' overlays (Claude in Chrome's glow border and
 // cursor, Device Frame's bezel) hidden for the moment of the capture. A counter in the page keeps
 // overlapping captures from showing them again too early.
-async function capture(s, tabId) {
+// A "before" picture also hides the app's loading overlay (WM Mobile's
+// "Loading....", ion-loading with its dimmed backdrop): Enter right after the
+// value (a scanner, or Claude typing) puts it up before the capture happens,
+// and the picture is meant to show the screen as you submitted it.
+const LOADING_OVERLAYS = 'ion-loading';
+async function capture(s, tabId, { before = false } = {}) {
   // Screenshot options are read now, not when the recording started, so a
   // change in Options applies to the next picture.
   const live = pick(await getSettings(), ['hideOverlays', 'overlaySelectors', 'hideBezel', 'cropToDevice']);
@@ -388,6 +393,7 @@ async function capture(s, tabId) {
     // Claude in Chrome's overlays (glow, cursor, "Claude is active…" banner): ids start "claude-".
     s.settings.hideOverlays && ['body > [id^="claude-"]', (s.settings.overlaySelectors || '').trim()].filter(Boolean).join(', '),
     s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
+    before && LOADING_OVERLAYS,
   ].filter(Boolean).join(', ');
   const run = (expression) => chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression }).catch(() => {});
   // Device Frame's 3-2-1 countdown (before its video starts) isn't part of the screen: wait for it.
@@ -400,7 +406,8 @@ async function capture(s, tabId) {
   }
   if (sel) {
     await run(`(() => { const w = window; w.__apiRecorderHide = (w.__apiRecorderHide || 0) + 1;
-      if (!document.getElementById('__apiRecorderHide')) { const st = document.createElement('style'); st.id = '__apiRecorderHide';
+      const id = ${JSON.stringify(before ? '__apiRecorderHideBefore' : '__apiRecorderHide')};
+      if (!document.getElementById(id)) { const st = document.createElement('style'); st.id = id;
         st.textContent = ${JSON.stringify(sel)} + ' { visibility: hidden !important; }'; (document.head || document.documentElement).appendChild(st); } })()`);
   }
   try {
@@ -421,6 +428,7 @@ async function capture(s, tabId) {
   } finally {
     if (sel) {
       await run(`(() => { const w = window; w.__apiRecorderHide = Math.max(0, (w.__apiRecorderHide || 1) - 1);
+        ${before ? "document.getElementById('__apiRecorderHideBefore')?.remove();" : ''}
         if (!w.__apiRecorderHide) document.getElementById('__apiRecorderHide')?.remove(); })()`);
     }
   }
@@ -462,7 +470,7 @@ async function cropToDevice(base64, geo, screenOnly) {
 function takeBefore(tabId) {
   const s = session;
   if (!s?.scenario || !s.settings.screenshots) return;
-  const shot = capture(s, tabId).catch(() => null);
+  const shot = capture(s, tabId, { before: true }).catch(() => null);
   s.pendingBefore.set(tabId, shot);
   s.pending.add(shot);
   shot.finally(() => s.pending.delete(shot));
