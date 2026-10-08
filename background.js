@@ -47,6 +47,13 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   }
 });
 
+// The key guard (keyguard.js) asks which shortcuts to keep away from the page.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== 'keyguard-get' || sender.id !== chrome.runtime.id) return;
+  chrome.commands.getAll().then((cmds) => sendResponse({ shortcuts: cmds.map((c) => c.shortcut).filter(Boolean) }), () => sendResponse({}));
+  return true;
+});
+
 function showBadge() {
   if (!session) {
     chrome.action.setBadgeText({ text: '' });
