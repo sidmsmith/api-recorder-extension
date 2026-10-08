@@ -378,7 +378,8 @@ async function capture(s, tabId) {
   s.shotSettings = live; // noted in the HAR (_screenshots), to see what the pictures were taken with
   s = { ...s, settings: { ...s.settings, ...live } };
   const sel = [
-    s.settings.hideOverlays && (s.settings.overlaySelectors || '').trim(),
+    // Claude in Chrome's overlays (glow, cursor, "Claude is active…" banner): ids start "claude-".
+    s.settings.hideOverlays && ['body > [id^="claude-"]', (s.settings.overlaySelectors || '').trim()].filter(Boolean).join(', '),
     s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
   ].filter(Boolean).join(', ');
   const run = (expression) => chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression }).catch(() => {});
