@@ -327,7 +327,9 @@ function scheduleShot(tabId, actionT) {
 async function capture(s, tabId) {
   // Screenshot options are read now, not when the recording started, so a
   // change in Options applies to the next picture.
-  s = { ...s, settings: { ...s.settings, ...pick(await getSettings(), ['hideOverlays', 'overlaySelectors', 'hideBezel', 'cropToDevice']) } };
+  const live = pick(await getSettings(), ['hideOverlays', 'overlaySelectors', 'hideBezel', 'cropToDevice']);
+  s.shotSettings = live; // noted in the HAR (_screenshots), to see what the pictures were taken with
+  s = { ...s, settings: { ...s.settings, ...live } };
   const sel = [
     s.settings.hideOverlays && (s.settings.overlaySelectors || '').trim(),
     s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
@@ -545,6 +547,8 @@ async function stop(reason) {
   }
   const scenario = s.scenario ? { ...s.scenario, recordedAt: new Date(s.startedAt).toISOString() } : null;
   const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version, s.actions, scenario);
+  // Which copy of the extension recorded, and the screenshot options it used (troubleshooting).
+  if (s.shotSettings) har.log._screenshots = { ...s.shotSettings, extensionId: chrome.runtime.id };
   const rootUrl = s.pages.get(s.rootTabId)?.url || '';
   // Screenshots belong to the step whose action they follow.
   const shots = {};
