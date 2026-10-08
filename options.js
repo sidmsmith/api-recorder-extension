@@ -9,10 +9,11 @@ async function load() {
   settings = { ...DEFAULT_SETTINGS, ...(stored || {}) };
   document.querySelector(`input[name=scope][value=${settings.scope}]`).checked = true;
   for (const id of ['include', 'exclude', 'filename', 'alwaysShow', 'alwaysHide', 'scenarioFolder', 'overlaySelectors']) $(id).value = settings[id];
-  for (const id of ['skipUi', 'followTabs', 'bodies', 'redact', 'outputHar', 'outputSummary', 'trackClicks', 'relevantOnly', 'scenarioMode', 'screenshots', 'hideOverlays', 'hideBezel', 'cropToDevice']) $(id).checked = settings[id];
+  for (const id of ['skipUi', 'followTabs', 'bodies', 'redact', 'outputHar', 'outputSummary', 'trackClicks', 'relevantOnly', 'scenarioMode', 'screenshots', 'hideOverlays', 'hideBezel', 'cropToDevice', 'videoLink']) $(id).checked = settings[id];
   $('summaryLines').value = settings.summaryLines;
   $('uiPatterns').textContent = UI_PATTERNS.split('\n').join('  ');
   $('maxBodyKB').value = settings.maxBodyKB;
+  $('videoIdleSkip').value = settings.videoIdleSkip;
   showExample();
 }
 
@@ -37,6 +38,8 @@ async function save() {
     hideOverlays: $('hideOverlays').checked,
     hideBezel: $('hideBezel').checked,
     cropToDevice: $('cropToDevice').checked,
+    videoLink: $('videoLink').checked,
+    videoIdleSkip: Math.min(60, Math.max(0, Number($('videoIdleSkip').value) || 0)),
     overlaySelectors: $('overlaySelectors').value.trim(),
     scenarioFolder: $('scenarioFolder').value.trim().replace(/[\\:*?"<>|]+/g, '_').replace(/^\/+|\/+$/g, '') || DEFAULT_SETTINGS.scenarioFolder,
     trackClicks: $('trackClicks').checked,

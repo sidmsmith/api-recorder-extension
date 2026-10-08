@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS = {
   hideOverlays: true,           // hide other tools' overlays (e.g. Claude in Chrome's glow and cursor) in screenshots
   overlaySelectors: '#claude-agent-glow-border, #claude-phantom-cursor',
   hideBezel: true,              // hide Device Frame's phone bezel and toolbar in screenshots
+  videoLink: true,              // scenario mode: Device Frame records its device video along (framed tabs)
+  videoIdleSkip: 2,             // ...and skips idle time in it: pause after this many seconds of no activity (0 = off)
   cropToDevice: true,           // in a Device Frame: crop to the phone (or its screen), transparent around it (PNG)
   scenarioFolder: 'scenario_library_inbox', // under Downloads
 };

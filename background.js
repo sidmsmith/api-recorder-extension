@@ -47,14 +47,21 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   }
 });
 
-// ---- Device Frame link (feasibility test) -----------------------------------------
+// ---- Device Frame link -------------------------------------------------------------
 // In scenario mode, starting a recording also asks Device Frame (if installed
-// and the tab is framed) to start its device video; stopping stops it too.
-const DEVICE_FRAME_ID = 'pdldhialmipkglhpfebmkpllkhnpnjgd'; // Device Frame (unpacked, Work\device_frame_extension)
+// and the tab is framed) to start its device video, named after the scenario
+// and saved in its folder, skipping idle time; stopping stops it too. Device
+// Frame is found by name (its id depends on where it's loaded from).
+async function deviceFrameId() {
+  const all = await chrome.management.getAll().catch(() => []);
+  return all.find((e) => e.enabled && e.type === 'extension' && /^Device Frame\b/i.test(e.name))?.id ?? null;
+}
 
 async function videoSend(action, tabId, extra = {}) {
+  const id = await deviceFrameId();
+  if (!id) return { ok: false, error: 'Device Frame not installed or disabled' };
   try {
-    return await chrome.runtime.sendMessage(DEVICE_FRAME_ID, { type: 'video', action, tabId, ...extra });
+    return await chrome.runtime.sendMessage(id, { type: 'video', action, tabId, ...extra });
   } catch (e) {
     return { ok: false, error: /Could not establish connection|Receiving end does not exist/i.test(String(e?.message)) ? 'Device Frame not installed or disabled' : String(e?.message ?? e) };
   }
@@ -62,8 +69,10 @@ async function videoSend(action, tabId, extra = {}) {
 
 async function videoStart(tabId) {
   const s = session;
-  if (!s?.scenario) return;
-  const res = (await videoSend('start', tabId)) ?? { ok: false, error: 'no answer' };
+  if (!s?.scenario || !s.settings.videoLink) return null;
+  const res = (await videoSend('start', tabId, {
+    name: s.scenario.name, folder: s.folder, idleMs: Math.max(0, Number(s.settings.videoIdleSkip) || 0) * 1000,
+  })) ?? { ok: false, error: 'no answer' };
   if (session === s) s.video = res;
   return res;
 }
@@ -124,6 +133,8 @@ async function start(tab, scenario = null) {
     settings: await getSettings(),
     startedAt: Date.now(),
   };
+  // The scenario's folder is decided now: Device Frame saves its video there too.
+  if (scenario) session.folder = scenarioDir(session.settings.scenarioFolder, scenario, new Date(session.startedAt));
   try {
     await attach(tab);
   } catch (e) {
@@ -604,7 +615,7 @@ async function stop(reason) {
   }
   // Scenario mode: Downloads/<folder>/<tier>-<name>_<timestamp>/recording.har, .html, step-01.jpg …
   // Otherwise: API_<host>_<timestamp>.har / .html.
-  const folder = scenario ? `${scenarioDir(s.settings.scenarioFolder, scenario)}/` : '';
+  const folder = s.folder ? `${s.folder}/` : '';
   const harName = scenario ? `${folder}recording.har` : harFilename(s.settings.filename, rootUrl);
   const saveHar = s.settings.outputHar || !s.settings.outputSummary;
   if (saveHar) await download(JSON.stringify(har, null, 2), harName);

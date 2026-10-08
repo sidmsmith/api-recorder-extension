@@ -6,6 +6,14 @@ download a **HAR** file.
 
 ## Use
 
+**With Device Frame (0.24+):** in scenario mode, when the tab is framed by
+Device Frame, starting a scenario also starts the device video (after its
+countdown) and stopping stops it; the video is named after the scenario,
+saved in the scenario's folder, and skips idle time (pauses after 2 s with
+nothing happening; Options). Frame the tab with the Device Frame icon first:
+Chrome only lets Device Frame record a tab it was invoked on. API Recorder's
+extension id is fixed by the `key` in manifest.json, so Device Frame knows it.
+
 **Shortcut: Alt+Shift+B** starts and stops a recording without the icon
 (handy when the window is too narrow to show it). While recording it stops and
 saves; in scenario mode it opens the scenario panel to start (name, tier,
