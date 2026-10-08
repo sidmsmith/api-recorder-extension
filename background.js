@@ -325,6 +325,9 @@ function scheduleShot(tabId, actionT) {
 // cursor, Device Frame's bezel) hidden for the moment of the capture. A counter in the page keeps
 // overlapping captures from showing them again too early.
 async function capture(s, tabId) {
+  // Screenshot options are read now, not when the recording started, so a
+  // change in Options applies to the next picture.
+  s = { ...s, settings: { ...s.settings, ...pick(await getSettings(), ['hideOverlays', 'overlaySelectors', 'hideBezel', 'cropToDevice']) } };
   const sel = [
     s.settings.hideOverlays && (s.settings.overlaySelectors || '').trim(),
     s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
@@ -357,6 +360,8 @@ async function capture(s, tabId) {
     }
   }
 }
+
+const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 
 // Cut the device (or, with the bezel hidden, its screen) out of a full-window
 // PNG, transparent outside its outline (rounded corners). geo is in CSS px.
