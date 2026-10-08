@@ -25,6 +25,28 @@ chrome.action.onClicked.addListener(async (tab) => {
   else await start(tab);
 });
 
+// Keyboard shortcut (Alt+Shift+B by default): stop and save while recording;
+// otherwise start – in scenario mode by opening the scenario panel for the
+// name, since the icon may be out of sight (e.g. in a narrow frame window).
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  if (command !== 'toggle-recording') return;
+  if (session) return stop('shortcut');
+  if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab) return;
+  if (!(await getSettings()).scenarioMode) return start(tab);
+  // The panel records this tab, even when it opens in a window of its own.
+  await chrome.storage.session.set({ panelTabId: tab.id });
+  try {
+    await chrome.action.openPopup({ windowId: tab.windowId });
+  } catch {
+    const win = await chrome.windows.get(tab.windowId).catch(() => null);
+    await chrome.windows.create({
+      url: 'popup.html', type: 'popup', width: 380, height: 560, focused: true,
+      ...(win ? { left: win.left + 40, top: win.top + 80 } : {}),
+    });
+  }
+});
+
 function showBadge() {
   if (!session) {
     chrome.action.setBadgeText({ text: '' });
@@ -603,7 +625,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } : { recording: false };
       case 'panel-start': {
         if (session) return { error: 'Already recording.' };
-        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        // Opened by the shortcut: record the tab it was pressed in (the panel
+        // may be a window of its own, which would otherwise count as active).
+        const { panelTabId } = await chrome.storage.session.get('panelTabId');
+        await chrome.storage.session.remove('panelTabId');
+        let tab = panelTabId !== undefined ? await chrome.tabs.get(panelTabId).catch(() => null) : null;
+        if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         const error = await start(tab, msg.scenario);
         return error ? { error } : { ok: true };
       }

@@ -6,6 +6,11 @@ download a **HAR** file.
 
 ## Use
 
+**Shortcut: Alt+Shift+B** starts and stops a recording without the icon
+(handy when the window is too narrow to show it). While recording it stops and
+saves; in scenario mode it opens the scenario panel to start (name, tier,
+area). Change it on `chrome://extensions/shortcuts`.
+
 1. Open the page to test (e.g. the WMS) and click the **API Recorder** icon.
    Recording starts with an empty log; the icon shows a red badge with the
    number of calls captured. Chrome shows a bar saying API Recorder "started
