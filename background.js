@@ -425,16 +425,18 @@ const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
 // PNG, transparent outside its outline (rounded corners). geo is in CSS px.
 async function cropToDevice(base64, geo, screenOnly) {
   const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
-  const scale = bitmap.width / geo.viewW; // image px per CSS px (zoom x DPR)
+  const scale = bitmap.width / geo.viewW; // image px per CSS px in the capture (zoom x DPR)
+  const OUT = 1.75; // output px per CSS px: every screenshot the same size, whatever the zoom
   const pad = screenOnly ? 0 : geo.pad;
   const area = screenOnly ? geo.screen : geo.bounds;
   const crop = { x: area.x - pad, y: area.y - pad, w: area.w + pad * 2, h: area.h + pad * 2 };
-  const canvas = new OffscreenCanvas(Math.round(crop.w * scale), Math.round(crop.h * scale));
+  const canvas = new OffscreenCanvas(Math.round(crop.w * OUT), Math.round(crop.h * OUT));
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, crop.x * scale, crop.y * scale, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bitmap, crop.x * scale, crop.y * scale, crop.w * scale, crop.h * scale, 0, 0, canvas.width, canvas.height);
   // Keep only what's inside the outline.
   ctx.globalCompositeOperation = 'destination-in';
-  ctx.setTransform(scale, 0, 0, scale, -crop.x * scale, -crop.y * scale);
+  ctx.setTransform(OUT, 0, 0, OUT, -crop.x * OUT, -crop.y * OUT);
   if (screenOnly) {
     const { x, y, w, h } = geo.screen;
     const r = Math.min(geo.screen.r || 0, w / 2, h / 2);

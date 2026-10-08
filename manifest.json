@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAh+Ys5ttXLl34BzFNcxlbr3pYNW7pvRjHC7kdb3jIsb4zjYdAEf16NYLLviaJ3sjoznnEAFHaTsOhFZwisQvjr4cSC8kZTnds+9M/iGfEO4xRSgT9Ah6Wq4sSpVYfrvaUWEJqrWPmYxzFPCJ9M8GaBOUCbk8nYFNmFWmx/1ewe8vwJn4b1acKfxT8v3DGxWdWeENFdCJ4AfLCS37QfHzIp0bs9vRBuMAg93kt1ZbpmEb56j9JVKkvBY8xQF/Dv8PpJjfx0HjzFIu4zGWy88MqsQzdnlfTQ708xI/ovVr0Ugwhg9iR3lTBkvDl+j4Yzw3EVB8zGbvypT1mdQ8+kfffUwIDAQAB",
   "name": "API Recorder",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "One click to record a tab's API calls (like DevTools' Network panel), one click to stop and download a HAR file.",
   "icons": {
     "16": "icons/icon16.png",
