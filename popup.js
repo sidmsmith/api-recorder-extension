@@ -30,6 +30,7 @@ function showRecording(status) {
   const sc = status.scenario;
   $('recName').textContent = sc ? sc.name : 'Quick recording';
   $('recMeta').textContent = sc ? [TIER_NAMES[sc.tier], sc.area, sc.customer].filter(Boolean).join(' · ') : '';
+  showVideo(status.video);
   $('steps').textContent = status.steps;
   $('calls').textContent = status.calls;
   $('checks').textContent = status.checkpoints;
@@ -43,10 +44,19 @@ function showRecording(status) {
     tick();
     const now = await ask({ type: 'panel-status' });
     if (!now.recording) return window.close();
+    showVideo(now.video);
     $('steps').textContent = now.steps;
     $('calls').textContent = now.calls;
     $('checks').textContent = now.checkpoints;
   }, 1000);
+}
+
+// Device Frame video status (it starts with the recording when the tab is framed).
+function showVideo(v) {
+  $('recVideo').textContent = !v ? ''
+    : v.ok ? '🎥 Device Frame video: recording'
+    : v.error === 'not-framed' ? '🎥 No video: this tab is not framed by Device Frame'
+    : `🎥 Video didn't start (${v.error}) - press Alt+Shift+V to record it`;
 }
 
 $('tier').addEventListener('change', () => { $('customerRow').hidden = $('tier').value !== 'custom'; });
@@ -64,6 +74,13 @@ $('startForm').addEventListener('submit', async (e) => {
   await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim() } });
   const res = await ask({ type: 'panel-start', scenario });
   if (res?.error) { $('err').textContent = res.error; return; }
+  // Recording started; if the device video didn't, say why (and stay open to read it).
+  if (res?.video && !res.video.ok && res.video.error !== 'not-framed') {
+    $('startForm').hidden = true;
+    $('recording').hidden = false;
+    showVideo(res.video);
+    return;
+  }
   window.close();
 });
 

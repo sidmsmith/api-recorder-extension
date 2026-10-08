@@ -47,6 +47,27 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   }
 });
 
+// ---- Device Frame link (feasibility test) -----------------------------------------
+// In scenario mode, starting a recording also asks Device Frame (if installed
+// and the tab is framed) to start its device video; stopping stops it too.
+const DEVICE_FRAME_ID = 'pdldhialmipkglhpfebmkpllkhnpnjgd'; // Device Frame (unpacked, Work\device_frame_extension)
+
+async function videoSend(action, tabId, extra = {}) {
+  try {
+    return await chrome.runtime.sendMessage(DEVICE_FRAME_ID, { type: 'video', action, tabId, ...extra });
+  } catch (e) {
+    return { ok: false, error: /Could not establish connection|Receiving end does not exist/i.test(String(e?.message)) ? 'Device Frame not installed or disabled' : String(e?.message ?? e) };
+  }
+}
+
+async function videoStart(tabId) {
+  const s = session;
+  if (!s?.scenario) return;
+  const res = (await videoSend('start', tabId)) ?? { ok: false, error: 'no answer' };
+  if (session === s) s.video = res;
+  return res;
+}
+
 // The key guard (keyguard.js) asks which shortcuts to keep away from the page.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== 'keyguard-get' || sender.id !== chrome.runtime.id) return;
@@ -546,6 +567,7 @@ function finish(key, rec) {
 async function stop(reason) {
   const s = session;
   if (!s) return;
+  if (s.video?.ok) videoSend('stop', s.rootTabId); // the device video stops with the recording
   session = null;
   clearInterval(keepAlive);
   showBadge();
@@ -654,7 +676,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     switch (msg.type) {
       case 'panel-status':
         return session ? {
-          recording: true, scenario: session.scenario, startedAt: session.startedAt,
+          recording: true, scenario: session.scenario, startedAt: session.startedAt, video: session.video ?? null,
           calls: session.done.length, steps: session.actions.filter((a) => STEP_KINDS.includes(a.kind)).length,
           checkpoints: session.actions.filter((a) => a.kind === 'checkpoint').length,
         } : { recording: false };
@@ -667,7 +689,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         let tab = panelTabId !== undefined ? await chrome.tabs.get(panelTabId).catch(() => null) : null;
         if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         const error = await start(tab, msg.scenario);
-        return error ? { error } : { ok: true };
+        if (error) return { error };
+        return { ok: true, video: await videoStart(tab.id) };
       }
       case 'panel-checkpoint':
         if (!session) return { error: 'Not recording.' };
