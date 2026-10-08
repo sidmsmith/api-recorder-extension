@@ -87,6 +87,8 @@ async function start(tab, scenario = null) {
     tabs: new Set(),
     pages: new Map(),
     records: new Map(), // key `${tabId}:${requestId}` -> record still in flight
+    slowCalls: new Set(),    // screenshot troubleshooting: the step's calls that took over 3 s
+    ignoredCalls: new Set(), // ...and open calls that weren't the step's (not waited for)
     extra: new Map(),   // ExtraInfo headers that arrived before their request
     done: [],           // finished records, in order
     pending: new Set(), // body/post-data fetches in progress
@@ -288,6 +290,9 @@ function onAction(tabId, payload) {
 // take 8 s or more). A new action first takes the previous step's picture
 // straight away.
 
+// Request types that stay open by design (never "finish").
+const LONG_LIVED = ['EventSource', 'WebSocket', 'Ping'];
+
 function scheduleShot(tabId, actionT) {
   const s = session;
   if (!s?.scenario || !s.settings.screenshots) return;
@@ -301,7 +306,17 @@ function scheduleShot(tabId, actionT) {
   let quietSince = 0;
   const check = async () => {
     if (s.shotTimers.get(tabId) !== entry) return; // replaced by a newer step
-    const calls = [...s.records.values()].some((r) => r.tabId === tabId);
+    // Only the step's own calls: those started by the action (within 2 s of
+    // it), not a connection that stays open or a background poll that happens
+    // to be running (WM Mobile keeps one pending, which made every picture
+    // wait for the next action, when "Loading...." was already up again).
+    const now = Date.now();
+    const open = [...s.records.values()].filter((r) => r.tabId === tabId && !LONG_LIVED.includes(r.sent.type));
+    const own = open.filter((r) => { const t = r.sent.wallTime * 1000; return t >= actionT - 500 && t <= actionT + 2000 && now - t < 20000; });
+    const calls = own.length > 0;
+    // Note what held a picture up for more than 3 s (troubleshooting, in the HAR).
+    if (now - actionT > 3000) for (const r of calls ? own : []) s.slowCalls.add(`${r.sent.type} ${r.sent.request.url.split('?')[0]}`);
+    if (now - actionT > 3000 && !calls) for (const r of open) s.ignoredCalls.add(`${r.sent.type} ${r.sent.request.url.split('?')[0]}`);
     const loading = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
       expression: "[...document.querySelectorAll('ion-loading')].some((el) => !el.classList.contains('overlay-hidden') && el.getClientRects().length > 0)",
       returnByValue: true,
@@ -548,7 +563,11 @@ async function stop(reason) {
   const scenario = s.scenario ? { ...s.scenario, recordedAt: new Date(s.startedAt).toISOString() } : null;
   const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version, s.actions, scenario);
   // Which copy of the extension recorded, and the screenshot options it used (troubleshooting).
-  if (s.shotSettings) har.log._screenshots = { ...s.shotSettings, extensionId: chrome.runtime.id };
+  if (s.shotSettings) har.log._screenshots = {
+    ...s.shotSettings, extensionId: chrome.runtime.id,
+    ...(s.slowCalls.size ? { waitedFor: [...s.slowCalls] } : {}),         // the step's own slow calls
+    ...(s.ignoredCalls.size ? { ignoredOpenCalls: [...s.ignoredCalls] } : {}), // still open, not the step's: not waited for
+  };
   const rootUrl = s.pages.get(s.rootTabId)?.url || '';
   // Screenshots belong to the step whose action they follow.
   const shots = {};
