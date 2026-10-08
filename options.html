@@ -40,6 +40,7 @@
     <label class="row"><input type="checkbox" id="screenshots"> <span><b>Screenshot after each step</b><p class="hint">In scenario mode: a picture of the screen once each step's calls have finished, shown in the report and saved as step-01-2-after.jpg, step-02-2-after.jpg…, plus a "before" picture (step-04-1-before.jpg) showing what you typed or pasted for that step.</p></span></label>
     <label class="row"><input type="checkbox" id="hideOverlays"> <span><b>Hide overlays in screenshots</b><p class="hint">Hides these page elements while each screenshot is taken, then shows them again – by default the glowing border and cursor that Claude in Chrome draws while it drives the page.</p><input type="text" id="overlaySelectors" spellcheck="false" style="width: 100%"></span></label>
     <label class="row"><input type="checkbox" id="hideBezel"> <span><b>Hide Device Frame's bezel in screenshots</b><p class="hint">When the page is shown in a Device Frame phone, the screenshots show just the app screen, without the phone around it or its toolbar. Turn off to keep the phone in the pictures.</p></span></label>
+    <label class="row"><input type="checkbox" id="cropToDevice"> <span><b>Crop screenshots to the device</b><p class="hint">When the page is shown in a Device Frame: just the phone (or, with its bezel hidden, just its screen), with transparent rounded corners – saved as .png instead of .jpg.</p></span></label>
     <p>Save scenarios to <code>Downloads\</code><input type="text" id="scenarioFolder" spellcheck="false" style="width: 260px"></p>
   </section>
 

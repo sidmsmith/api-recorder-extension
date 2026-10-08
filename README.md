@@ -43,6 +43,9 @@ panel instead of starting at once:
    (by default Claude in Chrome's glowing border and cursor) are hidden for
    the moment each picture is taken (option, on; the elements are listed in
    Options), and so is Device Frame's phone bezel (separate option, on).
+   In a Device Frame (0.23.1+), pictures are cropped to the phone – or just
+   its screen when the bezel is hidden – with transparent rounded corners,
+   saved as .png (option, on).
 
 What a recording notes about you: clicks (the button or menu text, plus
 what was clicked – element, id, classes – for a later replay), Enter in a

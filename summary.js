@@ -60,6 +60,9 @@ function findUser(entries) {
 }
 
 // meta: { startedAt, endedAt (ms), harName (or null when no HAR is saved), maxLines, relevantOnly }
+// A screenshot ({ data, ext }) as a data URL; PNG when cropped to a device.
+const imageUrl = (shot) => `data:image/${shot.ext === 'png' ? 'png' : 'jpeg'};base64,${shot.data}`;
+
 function buildSummaryHtml(har, meta) {
   const { pages, entries, comment } = har.log;
   const tabTitle = Object.fromEntries(pages.map((p) => [p.id, p.title]));
@@ -90,8 +93,8 @@ function buildSummaryHtml(har, meta) {
     n: st.n, time: clock(new Date(st.t)), text: stepText(st), screen: st.screen || '', noEffect: Boolean(st.noEffect),
     inputs: (st.inputs || []).map((x) => ({ label: x.label, value: x.value })),
     checkpoints: (st.checkpoints || []).map((c) => ({ text: c.text, time: clock(new Date(c.t)) })),
-    ...(shots[st.n] ? { shot: `data:image/jpeg;base64,${shots[st.n]}` } : {}),
-    ...(befores[st.n] ? { before: `data:image/jpeg;base64,${befores[st.n]}` } : {}),
+    ...(shots[st.n] ? { shot: imageUrl(shots[st.n]) } : {}),
+    ...(befores[st.n] ? { before: imageUrl(befores[st.n]) } : {}),
   }));
   const scenario = meta.scenario || har.log._scenario || null;
   const TIER_NAMES = { gold: 'Gold / Base', standard: 'Standard', custom: 'Custom' };

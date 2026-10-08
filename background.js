@@ -307,14 +307,55 @@ async function capture(s, tabId) {
         st.textContent = ${JSON.stringify(sel)} + ' { visibility: hidden !important; }'; (document.head || document.documentElement).appendChild(st); } })()`);
   }
   try {
-    const r = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'jpeg', quality: 60 });
-    return r?.data || null;
+    // In a Device Frame (version 0.23.1+ says where the device is): crop to it.
+    let geo = null;
+    if (s.settings.cropToDevice) {
+      const r = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+        expression: `(() => { const d = document.getElementById('__devframe')?.dataset.capture; return d ? { d, w: innerWidth } : null; })()`,
+        returnByValue: true,
+      }).catch(() => null);
+      const v = r?.result?.value;
+      if (v?.d) try { geo = { ...JSON.parse(v.d), viewW: v.w }; } catch { /* old Device Frame */ }
+    }
+    const r = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', geo ? { format: 'png' } : { format: 'jpeg', quality: 60 });
+    if (!r?.data) return null;
+    if (!geo) return { data: r.data, ext: 'jpg' };
+    return { data: await cropToDevice(r.data, geo, s.settings.hideBezel), ext: 'png' };
   } finally {
     if (sel) {
       await run(`(() => { const w = window; w.__apiRecorderHide = Math.max(0, (w.__apiRecorderHide || 1) - 1);
         if (!w.__apiRecorderHide) document.getElementById('__apiRecorderHide')?.remove(); })()`);
     }
   }
+}
+
+// Cut the device (or, with the bezel hidden, its screen) out of a full-window
+// PNG, transparent outside its outline (rounded corners). geo is in CSS px.
+async function cropToDevice(base64, geo, screenOnly) {
+  const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+  const scale = bitmap.width / geo.viewW; // image px per CSS px (zoom x DPR)
+  const pad = screenOnly ? 0 : geo.pad;
+  const area = screenOnly ? geo.screen : geo.bounds;
+  const crop = { x: area.x - pad, y: area.y - pad, w: area.w + pad * 2, h: area.h + pad * 2 };
+  const canvas = new OffscreenCanvas(Math.round(crop.w * scale), Math.round(crop.h * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, crop.x * scale, crop.y * scale, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+  // Keep only what's inside the outline.
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.setTransform(scale, 0, 0, scale, -crop.x * scale, -crop.y * scale);
+  if (screenOnly) {
+    const { x, y, w, h } = geo.screen;
+    const r = Math.min(geo.screen.r || 0, w / 2, h / 2);
+    const path = new Path2D();
+    path.roundRect(x, y, w, h, r);
+    ctx.fill(path);
+  } else {
+    ctx.fill(new Path2D(geo.mask));
+  }
+  const bytes = new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
 }
 
 function takeBefore(tabId) {
@@ -331,14 +372,14 @@ function claimBefore(tabId, actionT) {
   const capture = s?.pendingBefore.get(tabId);
   if (!capture) return;
   s.pendingBefore.delete(tabId);
-  const job = capture.then((data) => { if (data) s.befores.push({ tabId, t: actionT, data }); });
+  const job = capture.then((shot) => { if (shot) s.befores.push({ tabId, t: actionT, ...shot }); });
   s.pending.add(job);
   job.finally(() => s.pending.delete(job));
 }
 
 function takeShot(s, tabId, t) {
   const job = capture(s, tabId)
-    .then((data) => { if (data) s.shots.push({ tabId, t, data }); })
+    .then((shot) => { if (shot) s.shots.push({ tabId, t, ...shot }); })
     .catch(() => { /* tab closed or hidden */ });
   s.pending.add(job);
   job.finally(() => s.pending.delete(job));
@@ -475,12 +516,12 @@ async function stop(reason) {
   const shots = {};
   for (const shot of s.shots) {
     const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
-    if (step && !step.noEffect && !shots[step.n]) shots[step.n] = shot.data;
+    if (step && !step.noEffect && !shots[step.n]) shots[step.n] = shot;
   }
   const befores = {};
   for (const shot of s.befores) {
     const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
-    if (step && !befores[step.n]) befores[step.n] = shot.data;
+    if (step && !befores[step.n]) befores[step.n] = shot;
   }
   // Scenario mode: Downloads/<folder>/<tier>-<name>_<timestamp>/recording.har, .html, step-01.jpg …
   // Otherwise: API_<host>_<timestamp>.har / .html.
@@ -498,8 +539,9 @@ async function stop(reason) {
   // step-04-1-before.jpg, step-04-2-after.jpg: in order in any file list or
   // image viewer (with step-04.jpg / step-04-before.jpg a natural sort, as in
   // IrfanView, showed the after picture first).
-  for (const [n, data] of Object.entries(befores)) await download(data, `${folder}step-${String(n).padStart(2, '0')}-1-before.jpg`, 'image/jpeg', true);
-  for (const [n, data] of Object.entries(shots)) await download(data, `${folder}step-${String(n).padStart(2, '0')}-2-after.jpg`, 'image/jpeg', true);
+  const save = (shot, n, kind) => download(shot.data, `${folder}step-${String(n).padStart(2, '0')}-${kind}.${shot.ext}`, shot.ext === 'png' ? 'image/png' : 'image/jpeg', true);
+  for (const [n, shot] of Object.entries(befores)) await save(shot, n, '1-before');
+  for (const [n, shot] of Object.entries(shots)) await save(shot, n, '2-after');
   const what = scenario ? `"${scenario.name}" (${s.done.length} calls, ${Object.keys(shots).length} screenshots) to Downloads\\${folder.replace(/\//g, '\\')}` : `${s.done.length} call(s) to Downloads`;
   flash(String(s.done.length > 999 ? '999+' : s.done.length), `API Recorder: saved ${what}${reason === 'button' ? '' : ` (${reason.replace(/_/g, ' ')})`}`);
   chrome.action.setBadgeBackgroundColor({ color: '#188038' });
