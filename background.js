@@ -382,6 +382,14 @@ async function capture(s, tabId) {
     s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
   ].filter(Boolean).join(', ');
   const run = (expression) => chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression }).catch(() => {});
+  // Device Frame's 3-2-1 countdown (before its video starts) isn't part of the screen: wait for it.
+  for (let waited = 0; waited < 6000; waited += 200) {
+    const r = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+      expression: "document.getElementById('__devframe')?.dataset.countdown === '1'", returnByValue: true,
+    }).catch(() => null);
+    if (!r?.result?.value) break;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
   if (sel) {
     await run(`(() => { const w = window; w.__apiRecorderHide = (w.__apiRecorderHide || 0) + 1;
       if (!document.getElementById('__apiRecorderHide')) { const st = document.createElement('style'); st.id = '__apiRecorderHide';
@@ -643,7 +651,30 @@ async function stop(reason) {
 // user's machine, saving "download" without an extension); naming our own
 // downloads here takes priority. Other downloads are left alone.
 const nextFilenames = []; // our downloads, in the order they were started
+// Chrome lets only the most recently installed extension with this listener
+// name downloads, so we also name Device Frame's (it tells us their names:
+// its scenario videos and screenshots; it has no listener of its own).
+const announced = new Map(); // download url key -> file name
+const urlKey = (url) => (String(url).startsWith('data:') ? `${url.length}:${url.slice(-80)}` : String(url));
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== 'name-download') return;
+  deviceFrameId().then((id) => {
+    if (id && sender.id === id && typeof msg.url === 'string' && typeof msg.filename === 'string') {
+      announced.set(urlKey(msg.url), msg.filename);
+      setTimeout(() => announced.delete(urlKey(msg.url)), 120000);
+    }
+    sendResponse({ ok: true });
+  });
+  return true;
+});
+
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  const named = announced.get(urlKey(item.url));
+  if (named) {
+    announced.delete(urlKey(item.url));
+    suggest({ filename: named, conflictAction: 'uniquify' });
+    return;
+  }
   if (item.byExtensionId !== chrome.runtime.id || !nextFilenames.length) return;
   suggest({ filename: nextFilenames.shift(), conflictAction: 'uniquify' });
 });
