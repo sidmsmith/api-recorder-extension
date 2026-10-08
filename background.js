@@ -344,7 +344,14 @@ function scheduleShot(tabId, actionT) {
     // wait for the next action, when "Loading...." was already up again).
     const now = Date.now();
     const open = [...s.records.values()].filter((r) => r.tabId === tabId && !LONG_LIVED.includes(r.sent.type));
-    const own = open.filter((r) => { const t = r.sent.wallTime * 1000; return t >= actionT - 500 && t <= actionT + 2000 && now - t < 20000; });
+    // A call counts as done once its response has arrived (some never report
+    // "finished", e.g. WM Mobile's missing button icons), and static files
+    // (icons, images, fonts, styles, scripts) never hold a picture up.
+    const STATIC = /\.(svg|png|jpe?g|gif|webp|ico|css|js|woff2?|ttf)(\?|$)/i;
+    const own = open.filter((r) => {
+      const t = r.sent.wallTime * 1000;
+      return t >= actionT - 500 && t <= actionT + 2000 && now - t < 20000 && !r.response && !STATIC.test(r.sent.request.url);
+    });
     const calls = own.length > 0;
     // Note what held a picture up for more than 3 s (troubleshooting, in the HAR).
     if (now - actionT > 3000) for (const r of calls ? own : []) s.slowCalls.add(`${r.sent.type} ${r.sent.request.url.split('?')[0]}`);
