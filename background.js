@@ -181,7 +181,18 @@ async function attach(tab) {
 // reporting (it calls a binding name that no longer exists).
 const BINDING = `__apiRecorderAction_${chrome.runtime.getManifest().version.replace(/\W/g, '_')}`;
 
-function pageTracker(binding) {
+function pageTracker(binding, opts = {}) {
+  // Scenario mode: hide the app's tooltips (a style that goes again when recording stops).
+  if (opts.css && !document.getElementById('__apiRecorderNoTooltips')) {
+    const add = () => {
+      if (document.getElementById('__apiRecorderNoTooltips')) return;
+      const st = document.createElement('style');
+      st.id = '__apiRecorderNoTooltips';
+      st.textContent = opts.css;
+      (document.head || document.documentElement).appendChild(st);
+    };
+    if (document.documentElement) add(); else document.addEventListener('DOMContentLoaded', add, { once: true });
+  }
   if (window[`${binding}_installed`]) return;
   window[`${binding}_installed`] = true;
   // The screen's name: the visible page header (WM Mobile shows "MENU", "Blind
@@ -310,8 +321,20 @@ function pageTracker(binding) {
   report({ kind: 'load' });
 }
 
+// The usual tooltip elements of web apps (Angular Material, Bootstrap, PrimeNG, Tippy, any
+// role="tooltip"): hidden while a scenario is recorded, so a tooltip from lingering on a
+// menu entry isn't in the video or the screenshots. More in the options.
+const TOOLTIPS = '[role="tooltip"], .tooltip, .mat-tooltip, .mat-mdc-tooltip, .mdc-tooltip, mat-tooltip-component, '
+  + '.mat-tooltip-panel, .mat-mdc-tooltip-panel, ngb-tooltip-window, .p-tooltip, .ngx-tooltip, .tippy-box, [data-tippy-root]';
+
+function tooltipCss(settings) {
+  const extra = String(settings.tooltipSelectors || '').split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+  return `${[TOOLTIPS, ...extra].join(', ')} { display: none !important; }`;
+}
+
 async function installTracker(target) {
-  const source = `(${pageTracker})(${JSON.stringify(BINDING)});`;
+  const opts = session?.scenario && session.settings.hideTooltips ? { css: tooltipCss(session.settings) } : {};
+  const source = `(${pageTracker})(${JSON.stringify(BINDING)}, ${JSON.stringify(opts)});`;
   await chrome.debugger.sendCommand(target, 'Runtime.enable');
   await chrome.debugger.sendCommand(target, 'Runtime.addBinding', { name: BINDING });
   await chrome.debugger.sendCommand(target, 'Page.enable');
@@ -635,7 +658,10 @@ async function stop(reason) {
   for (const [tabId, waiting] of s.shotTimers) { clearTimeout(waiting.timer); takeShot(s, tabId, waiting.t); }
   // Let body fetches that are already running finish, then let go of the tabs.
   await Promise.allSettled([...s.pending]);
-  for (const tabId of s.tabs) await chrome.debugger.detach({ tabId }).catch(() => {});
+  for (const tabId of s.tabs) {
+    await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression: "document.getElementById('__apiRecorderNoTooltips')?.remove()" }).catch(() => {});
+    await chrome.debugger.detach({ tabId }).catch(() => {});
+  }
   // Requests still in flight with a response are kept (no timing end yet).
   for (const rec of s.records.values()) if (rec.response) s.done.push(rec);
   for (const page of s.pages.values()) {

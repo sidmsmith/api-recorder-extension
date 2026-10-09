@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS = {
   hideOverlays: true,           // hide other tools' overlays (e.g. Claude in Chrome's glow and cursor) in screenshots
   overlaySelectors: '',          // more elements to hide (Claude in Chrome's own are always hidden)
   hideBezel: false,             // hide Device Frame's phone bezel and toolbar in screenshots
+  hideTooltips: true,           // scenario mode: hide the app's tooltips while recording (video and screenshots)
+  tooltipSelectors: '',         // ...more tooltip elements (CSS selectors), besides the usual ones
   videoLink: true,              // scenario mode: Device Frame records its device video along (framed tabs)
   videoIdleSkip: 2,             // ...and skips idle time in it: pause after this many seconds of no activity (0 = off)
   cropToDevice: true,           // in a Device Frame: crop to the phone (or its screen), transparent around it (PNG)
