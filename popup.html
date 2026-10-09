@@ -43,6 +43,13 @@
     <label for="part">Part <span class="meta">(optional – a scenario recorded in parts)</span></label>
     <input id="part" list="parts" maxlength="40" placeholder="e.g. Item preview, WM Mobile, Locked iLPN" autocomplete="off">
     <datalist id="parts"><option>Preview</option><option>WM Mobile</option><option>Validation</option></datalist>
+    <label for="device">Device <span class="meta">(Device Frame opens the page in it - sized and placed)</span></label>
+    <select id="device">
+      <option value="">The tab as it is</option>
+      <option value="motoG4">Phone – Moto G4</option>
+      <option value="desktop720">Desktop 1280×720</option>
+      <option value="desktop">Desktop – fit the screen</option>
+    </select>
     <div class="row">
       <div>
         <label for="tier">Tier</label>

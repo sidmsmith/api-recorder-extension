@@ -255,6 +255,21 @@ function pageTracker(binding) {
     clearTimeout(typingTimer);
     typingTimer = setTimeout(flushTyping, 150);
   }, true);
+  // Scrolling (e.g. down a dropdown list to the option you'll click): once you stop, the
+  // recorder takes a "before" picture, so the screen you clicked in shows the option.
+  // Only scrolling you did (mouse wheel, touch, scrolling keys), not the app's own (e.g. a
+  // section scrolled into view after a click).
+  let userInput = 0;
+  let scrollTimer;
+  const SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
+  addEventListener('wheel', () => { userInput = Date.now(); }, { capture: true, passive: true });
+  addEventListener('touchmove', () => { userInput = Date.now(); }, { capture: true, passive: true });
+  addEventListener('keydown', (e) => { if (SCROLL_KEYS.test(e.key)) userInput = Date.now(); }, { capture: true, passive: true });
+  addEventListener('scroll', () => {
+    if (Date.now() - userInput > 1500) return;
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => report({ kind: 'scrolled' }), 400);
+  }, { capture: true, passive: true });
   addEventListener('focusout', (e) => {
     const el = fieldOf(e);
     if (!el || before.get(el) === el.value || /^(button|submit|checkbox|radio|reset|image|file)$/i.test(el.type)) return;
@@ -302,7 +317,7 @@ function onAction(tabId, payload) {
   try { a = JSON.parse(payload); } catch { return; }
   if (a.title) session.screens.set(tabId, a.title);
   if (a.kind === 'screen') return;
-  if (a.kind === 'typing') { takeBefore(tabId); return; }
+  if (a.kind === 'typing' || a.kind === 'scrolled') { takeBefore(tabId); return; }
   // A page load becomes a step named after the screen ("Opened …").
   session.actions.push({
     tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t,
@@ -628,11 +643,19 @@ async function stop(reason) {
     ...(s.ignoredCalls.size ? { ignoredOpenCalls: [...s.ignoredCalls] } : {}), // still open, not the step's: not waited for
   };
   const rootUrl = s.pages.get(s.rootTabId)?.url || '';
-  // Screenshots belong to the step whose action they follow.
+  // Screenshots belong to the step whose action they follow. A click that set off no call
+  // (marked "no effect") still keeps its picture when the screen changed - e.g. selecting a
+  // row in a web app shows its buttons (Details...) without asking the server anything.
   const shots = {};
-  for (const shot of s.shots) {
-    const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
-    if (step && !step.noEffect && !shots[step.n]) shots[step.n] = shot;
+  const lastShot = new Map(); // tabId -> the picture of the step before
+  for (const step of har.log._steps) {
+    const shot = s.shots.find((x) => x.t === step.t && x.tabId === step.tabId);
+    if (!shot || shots[step.n]) continue;
+    const same = lastShot.get(step.tabId)?.data === shot.data;
+    lastShot.set(step.tabId, shot);
+    if (step.noEffect && same) continue;
+    if (step.noEffect) delete step.noEffect;
+    shots[step.n] = shot;
   }
   const befores = {};
   for (const shot of s.befores) {
@@ -749,6 +772,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await chrome.storage.session.remove('panelTabId');
         let tab = panelTabId !== undefined ? await chrome.tabs.get(panelTabId).catch(() => null) : null;
         if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        // A device chosen: Device Frame opens the page in it (its own window, sized and placed,
+        // toolbar hidden) and the recording happens there - no resizing by hand.
+        if (msg.scenario?.device && /^https?:/i.test(tab?.url || '')) {
+          const framed = await videoSend('frame', tab.id, { device: msg.scenario.device });
+          if (!framed?.ok) return { error: `Device Frame couldn't open the device (${framed?.error || 'no answer'}). Choose "The tab as it is", or frame the tab yourself.` };
+          tab = await chrome.tabs.get(framed.tabId);
+        }
         const error = await start(tab, msg.scenario);
         if (error) return { error };
         return { ok: true, video: await videoStart(tab.id) };

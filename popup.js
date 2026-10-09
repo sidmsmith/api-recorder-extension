@@ -21,6 +21,7 @@ async function showForm() {
   $('tier').value = panel.tier || 'standard';
   $('area').value = panel.area || '';
   $('customer').value = panel.customer || '';
+  $('device').value = panel.device ?? '';
   // The next part of a scenario recorded in parts: the same scenario name, a new part.
   if (panel.part && panel.name) $('name').value = panel.name;
   $('folder').textContent = settings.scenarioFolder || 'scenario_library_inbox';
@@ -68,13 +69,14 @@ $('startForm').addEventListener('submit', async (e) => {
   const scenario = {
     name: $('name').value.trim(),
     ...($('part').value.trim() ? { part: $('part').value.trim() } : {}),
+    ...($('device').value ? { device: $('device').value } : {}),
     tier: $('tier').value,
     area: $('area').value.trim(),
     ...($('tier').value === 'custom' && $('customer').value.trim() ? { customer: $('customer').value.trim() } : {}),
     ...($('notes').value.trim() ? { notes: $('notes').value.trim() } : {}),
   };
   if (!scenario.name) return;
-  await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim(), name: scenario.name, part: scenario.part || '' } });
+  await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim(), name: scenario.name, part: scenario.part || '', device: $('device').value } });
   const res = await ask({ type: 'panel-start', scenario });
   if (res?.error) { $('err').textContent = res.error; return; }
   // Recording started; if the device video didn't, say why (and stay open to read it).

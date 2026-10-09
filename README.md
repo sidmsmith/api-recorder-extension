@@ -48,6 +48,11 @@ panel instead of starting at once:
    part, the next recording starts with the same scenario name filled in.
    The part is saved in the recording (`_scenario.part`), the folder name
    (`<tier>-<name>_<part>_<timestamp>`), the report and the video's name.
+   **Device** (remembered): with Device Frame (0.25.8+), choose Phone – Moto G4,
+   Desktop 1280×720 or Desktop – fit the screen, and Start opens the page in
+   that device - its own window, sized and placed, toolbar hidden - and records
+   there. No maximizing or resizing by hand. "The tab as it is" records the tab
+   unchanged (framed or not).
 2. **Start recording** and run the scenario.
 3. While recording, the panel shows the steps, calls and checkpoints so far.
    Use **Checkpoint** to note what should be true at that point ("ASN
