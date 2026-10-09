@@ -617,7 +617,8 @@ function finish(key, rec) {
 async function stop(reason) {
   const s = session;
   if (!s) return;
-  if (s.video?.ok) videoSend('stop', s.rootTabId); // the device video stops with the recording
+  // The device video stops with the recording (also one started late, by its shortcut).
+  if (s.video) videoSend('stop', s.rootTabId);
   session = null;
   clearInterval(keepAlive);
   showBadge();
@@ -696,6 +697,16 @@ const nextFilenames = []; // our downloads, in the order they were started
 // its scenario videos and screenshots; it has no listener of its own).
 const announced = new Map(); // download url key -> file name
 const urlKey = (url) => (String(url).startsWith('data:') ? `${url.length}:${url.slice(-80)}` : String(url));
+// Device Frame: the scenario video started after all (you pressed its record shortcut).
+chrome.runtime.onMessageExternal.addListener((msg, sender) => {
+  if (msg?.type !== 'video-started') return;
+  deviceFrameId().then((id) => {
+    if (!id || sender.id !== id || !session?.tabs.has(Number(msg.tabId))) return;
+    session.video = { ok: true, late: true };
+    showBadge();
+  });
+});
+
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== 'name-download') return;
   deviceFrameId().then((id) => {
