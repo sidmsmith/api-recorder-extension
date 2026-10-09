@@ -376,7 +376,7 @@ function scheduleShot(tabId, actionT) {
   const waiting = s.shotTimers.get(tabId);
   if (waiting) {
     clearTimeout(waiting.timer);
-    takeShot(s, tabId, waiting.t);
+    takeShot(s, tabId, waiting.t, { early: true });
   }
   const startedAt = Date.now();
   const entry = { t: actionT };
@@ -428,7 +428,7 @@ function scheduleShot(tabId, actionT) {
 // value (a scanner, or Claude typing) puts it up before the capture happens,
 // and the picture is meant to show the screen as you submitted it.
 const LOADING_OVERLAYS = 'ion-loading';
-async function capture(s, tabId, { before = false } = {}) {
+async function capture(s, tabId, { before = false, early = false } = {}) {
   // Screenshot options are read now, not when the recording started, so a
   // change in Options applies to the next picture.
   const live = pick(await getSettings(), ['hideOverlays', 'overlaySelectors', 'hideBezel', 'cropToDevice']);
@@ -438,7 +438,9 @@ async function capture(s, tabId, { before = false } = {}) {
     // Claude in Chrome's overlays (glow, cursor, "Claude is active…" banner): ids start "claude-".
     s.settings.hideOverlays && ['body > [id^="claude-"]', (s.settings.overlaySelectors || '').trim()].filter(Boolean).join(', '),
     s.settings.hideBezel && '#__devframe', // Device Frame's phone bezel and toolbar
-    before && LOADING_OVERLAYS,
+    // A "before" picture, or a step's picture taken early because the next action already
+    // happened: the app's loading overlay is that next action's, not this screen's.
+    (before || early) && LOADING_OVERLAYS,
   ].filter(Boolean).join(', ');
   const run = (expression) => chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { expression }).catch(() => {});
   // Device Frame's 3-2-1 countdown (before its video starts) isn't part of the screen: wait for it.
@@ -531,8 +533,8 @@ function claimBefore(tabId, actionT) {
   job.finally(() => s.pending.delete(job));
 }
 
-function takeShot(s, tabId, t) {
-  const job = capture(s, tabId)
+function takeShot(s, tabId, t, opts = {}) {
+  const job = capture(s, tabId, opts)
     .then((shot) => { if (shot) s.shots.push({ tabId, t, ...shot }); })
     .catch(() => { /* tab closed or hidden */ });
   s.pending.add(job);
@@ -655,7 +657,7 @@ async function stop(reason) {
   clearInterval(keepAlive);
   showBadge();
   // Steps still waiting for their screenshot get it now, before letting go of the tabs.
-  for (const [tabId, waiting] of s.shotTimers) { clearTimeout(waiting.timer); takeShot(s, tabId, waiting.t); }
+  for (const [tabId, waiting] of s.shotTimers) { clearTimeout(waiting.timer); takeShot(s, tabId, waiting.t, { early: true }); }
   // Let body fetches that are already running finish, then let go of the tabs.
   await Promise.allSettled([...s.pending]);
   for (const tabId of s.tabs) {
