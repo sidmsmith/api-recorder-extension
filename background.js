@@ -6,7 +6,12 @@
 // many calls have been captured. Chrome shows its "started debugging this
 // browser" bar while recording; its Cancel button also stops and saves.
 
-importScripts('har.js', 'summary.js');
+// Built into Demo Scenario Recorder (one extension with Device Frame, see
+// demo_scenario_recorder/build.py, which sets self.EMBEDDED and loads har.js / summary.js
+// from rec/): Device Frame is called directly, and the panel is rec/popup.html.
+const BUILT_IN = self.EMBEDDED === true;
+if (!BUILT_IN) importScripts('har.js', 'summary.js');
+const PANEL = BUILT_IN ? 'rec/popup.html' : 'popup.html';
 
 let session = null; // the recording in progress, see start()
 let keepAlive = null;
@@ -41,7 +46,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   } catch {
     const win = await chrome.windows.get(tab.windowId).catch(() => null);
     await chrome.windows.create({
-      url: 'popup.html', type: 'popup', width: 380, height: 560, focused: true,
+      url: PANEL, type: 'popup', width: 380, height: 600, focused: true,
       ...(win ? { left: win.left + 40, top: win.top + 80 } : {}),
     });
   }
@@ -58,6 +63,10 @@ async function deviceFrameId() {
 }
 
 async function videoSend(action, tabId, extra = {}) {
+  // Built in: Device Frame is part of this extension.
+  if (BUILT_IN && typeof companionRequest === 'function') {
+    return companionRequest({ type: 'video', action, tabId, ...extra }).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
+  }
   const id = await deviceFrameId();
   if (!id) return { ok: false, error: 'Device Frame not installed or disabled' };
   try {
@@ -698,22 +707,26 @@ const nextFilenames = []; // our downloads, in the order they were started
 const announced = new Map(); // download url key -> file name
 const urlKey = (url) => (String(url).startsWith('data:') ? `${url.length}:${url.slice(-80)}` : String(url));
 // Device Frame: the scenario video started after all (you pressed its record shortcut).
+function noteVideoStarted(tabId) {
+  if (!session?.tabs.has(Number(tabId))) return;
+  session.video = { ok: true, late: true };
+  showBadge();
+}
+// Device Frame's downloads (videos, screenshots): their names.
+function noteDownloadName(url, filename) {
+  if (typeof url !== 'string' || typeof filename !== 'string') return;
+  announced.set(urlKey(url), filename);
+  setTimeout(() => announced.delete(urlKey(url)), 120000);
+}
 chrome.runtime.onMessageExternal.addListener((msg, sender) => {
   if (msg?.type !== 'video-started') return;
-  deviceFrameId().then((id) => {
-    if (!id || sender.id !== id || !session?.tabs.has(Number(msg.tabId))) return;
-    session.video = { ok: true, late: true };
-    showBadge();
-  });
+  deviceFrameId().then((id) => { if (id && sender.id === id) noteVideoStarted(msg.tabId); });
 });
 
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== 'name-download') return;
   deviceFrameId().then((id) => {
-    if (id && sender.id === id && typeof msg.url === 'string' && typeof msg.filename === 'string') {
-      announced.set(urlKey(msg.url), msg.filename);
-      setTimeout(() => announced.delete(urlKey(msg.url)), 120000);
-    }
+    if (id && sender.id === id) noteDownloadName(msg.url, msg.filename);
     sendResponse({ ok: true });
   });
   return true;
@@ -759,13 +772,13 @@ function scenarioDir(base, scenario, date = new Date()) {
 
 async function applyIconMode() {
   const { scenarioMode } = await getSettings();
-  await chrome.action.setPopup({ popup: scenarioMode ? 'popup.html' : '' });
+  await chrome.action.setPopup({ popup: scenarioMode || BUILT_IN ? PANEL : '' });
 }
 chrome.storage.onChanged.addListener((changes) => { if (changes.settings) applyIconMode(); });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // From the scenario panel only (popup.html, also when opened in a tab).
-  if (!msg?.type?.startsWith('panel-') || sender.id !== chrome.runtime.id || !sender.url?.includes('/popup.html')) return;
+  if (!msg?.type?.startsWith('panel-') || sender.id !== chrome.runtime.id || !sender.url?.includes('popup.html')) return;
   (async () => {
     switch (msg.type) {
       case 'panel-status':
@@ -792,6 +805,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const error = await start(tab, msg.scenario);
         if (error) return { error };
         return { ok: true, video: await videoStart(tab.id) };
+      }
+      case 'panel-frame': {
+        // Is the tab the panel would record framed (and in which device)? Or remove the frame.
+        const { panelTabId } = await chrome.storage.session.get('panelTabId');
+        let tab = panelTabId !== undefined ? await chrome.tabs.get(panelTabId).catch(() => null) : null;
+        if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tab) return { framed: false };
+        if (msg.unframe) return videoSend('unframe', tab.id);
+        return videoSend('framed', tab.id);
       }
       case 'panel-checkpoint':
         if (!session) return { error: 'Not recording.' };

@@ -30,6 +30,7 @@
   .cp { display: flex; gap: 6px; }
   .cp button { white-space: nowrap; }
   .ok { color: var(--green); font-weight: 600; margin-top: 6px; min-height: 16px; }
+  button.link { border: 0; background: none; padding: 0; color: #1a73e8; font-weight: 600; font-size: 12px; text-decoration: underline; cursor: pointer; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -77,6 +78,7 @@
     <textarea id="notes" maxlength="500" placeholder="What this scenario shows, starting point…"></textarea>
     <button type="submit" class="primary">● Start recording</button>
     <p class="hint">Records this tab (and tabs it opens) until you stop. Files go to Downloads\<span id="folder"></span>.</p>
+    <p class="hint" id="framedRow" hidden>This tab is framed (<span id="framedDevice"></span>). <button type="button" id="unframe" class="link">Remove the frame</button></p>
     <div class="err" id="err"></div>
   </form>
 

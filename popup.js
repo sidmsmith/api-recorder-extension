@@ -27,7 +27,17 @@ async function showForm() {
   $('folder').textContent = settings.scenarioFolder || 'scenario_library_inbox';
   $('customerRow').hidden = $('tier').value !== 'custom';
   $('name').focus();
+  // A framed tab: say so, and offer to take the frame off (the icon is ours when built in).
+  const f = await ask({ type: 'panel-frame' });
+  $('framedRow').hidden = !f.framed;
+  $('framedDevice').textContent = f.device ? DEVICE_NAMES[f.device] || f.device : '';
 }
+
+const DEVICE_NAMES = { motoG4: 'Phone – Moto G4', desktop720: 'Desktop 1280×720', desktop: 'Desktop – fit the screen' };
+$('unframe').addEventListener('click', async () => {
+  await ask({ type: 'panel-frame', unframe: true });
+  window.close();
+});
 
 function showRecording(status) {
   const sc = status.scenario;
