@@ -71,7 +71,7 @@ async function videoStart(tabId) {
   const s = session;
   if (!s?.scenario || !s.settings.videoLink) return null;
   const res = (await videoSend('start', tabId, {
-    name: s.scenario.name, folder: s.folder, idleMs: Math.max(0, Number(s.settings.videoIdleSkip) || 0) * 1000,
+    name: s.scenario.part ? `${s.scenario.name} - ${s.scenario.part}` : s.scenario.name, folder: s.folder, idleMs: Math.max(0, Number(s.settings.videoIdleSkip) || 0) * 1000,
   })) ?? { ok: false, error: 'no answer' };
   if (session === s) s.video = res;
   return res;
@@ -711,9 +711,10 @@ async function download(content, filename, type = 'application/octet-stream', is
   await chrome.downloads.download({ url, filename, conflictAction: 'uniquify' });
 }
 
-// "Scenario name" folder: <tier>-<name>_<YYYYMMDDHHMMSS>, only letters, digits and dashes.
+// "Scenario name" folder: <tier>-<name>[_<part>]_<YYYYMMDDHHMMSS>, only letters, digits and dashes.
 function scenarioDir(base, scenario, date = new Date()) {
-  const slug = String(scenario.name || 'scenario').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'scenario';
+  const slugOf = (v, max) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, max);
+  const slug = (slugOf(scenario.name, 50) || 'scenario') + (scenario.part ? `_${slugOf(scenario.part, 30)}` : '');
   const stamp = harFilename('{timestamp}', '', date).replace(/\.har$/, '');
   const root = String(base || DEFAULT_SETTINGS.scenarioFolder).replace(/[\\:*?"<>|]+/g, '_').replace(/^\/+|\/+$/g, '');
   return `${root}/${scenario.tier || 'standard'}-${slug}_${stamp}`;

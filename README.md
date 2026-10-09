@@ -42,6 +42,12 @@ panel instead of starting at once:
 1. Enter the **scenario name**, **tier** (Gold / Base, Standard, Custom),
    **area** (Receiving, Putaway…), the **customer** for Custom scenarios, and
    optional notes. Tier, area and customer are remembered for the next one.
+   For a scenario recorded in **parts** (e.g. a web-UI preview in Device
+   Frame's desktop device, then the WM Mobile part on a phone, then a web-UI
+   check), also enter the **part** ("Item preview", "WM Mobile"…); after a
+   part, the next recording starts with the same scenario name filled in.
+   The part is saved in the recording (`_scenario.part`), the folder name
+   (`<tier>-<name>_<part>_<timestamp>`), the report and the video's name.
 2. **Start recording** and run the scenario.
 3. While recording, the panel shows the steps, calls and checkpoints so far.
    Use **Checkpoint** to note what should be true at that point ("ASN

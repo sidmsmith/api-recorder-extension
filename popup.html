@@ -40,6 +40,9 @@
   <form id="startForm" hidden>
     <label for="name">Scenario name</label>
     <input id="name" required maxlength="80" placeholder="e.g. Blind Receipt – create ASN" autocomplete="off">
+    <label for="part">Part <span class="meta">(optional – a scenario recorded in parts)</span></label>
+    <input id="part" list="parts" maxlength="40" placeholder="e.g. Item preview, WM Mobile, Locked iLPN" autocomplete="off">
+    <datalist id="parts"><option>Preview</option><option>WM Mobile</option><option>Validation</option></datalist>
     <div class="row">
       <div>
         <label for="tier">Tier</label>

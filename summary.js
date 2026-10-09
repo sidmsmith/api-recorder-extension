@@ -113,6 +113,7 @@ function buildSummaryHtml(har, meta) {
   const rows = [
     ['Site', `${hosts.join(', ') || '–'}${user ? ` · user ${user}` : ''}`],
     ...(scenario ? [['Scenario', [TIER_NAMES[scenario.tier] || scenario.tier, scenario.area, scenario.customer ? `customer ${scenario.customer}` : ''].filter(Boolean).join(' · ')]] : []),
+    ...(scenario?.part ? [['Part', scenario.part]] : []),
     ...(scenario?.notes ? [['Notes', scenario.notes]] : []),
     ['Recorded', `${day(start)} · ${clock(start)} – ${clock(end)} (${span(meta.endedAt - meta.startedAt)})`],
     ['Screens', (screens.length ? screens : pages.map((p) => p.title)).join(' → ') || '–'],

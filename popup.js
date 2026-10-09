@@ -21,6 +21,8 @@ async function showForm() {
   $('tier').value = panel.tier || 'standard';
   $('area').value = panel.area || '';
   $('customer').value = panel.customer || '';
+  // The next part of a scenario recorded in parts: the same scenario name, a new part.
+  if (panel.part && panel.name) $('name').value = panel.name;
   $('folder').textContent = settings.scenarioFolder || 'scenario_library_inbox';
   $('customerRow').hidden = $('tier').value !== 'custom';
   $('name').focus();
@@ -29,7 +31,7 @@ async function showForm() {
 function showRecording(status) {
   const sc = status.scenario;
   $('recName').textContent = sc ? sc.name : 'Quick recording';
-  $('recMeta').textContent = sc ? [TIER_NAMES[sc.tier], sc.area, sc.customer].filter(Boolean).join(' · ') : '';
+  $('recMeta').textContent = sc ? [sc.part && `Part: ${sc.part}`, TIER_NAMES[sc.tier], sc.area, sc.customer].filter(Boolean).join(' · ') : '';
   showVideo(status.video);
   $('steps').textContent = status.steps;
   $('calls').textContent = status.calls;
@@ -65,13 +67,14 @@ $('startForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const scenario = {
     name: $('name').value.trim(),
+    ...($('part').value.trim() ? { part: $('part').value.trim() } : {}),
     tier: $('tier').value,
     area: $('area').value.trim(),
     ...($('tier').value === 'custom' && $('customer').value.trim() ? { customer: $('customer').value.trim() } : {}),
     ...($('notes').value.trim() ? { notes: $('notes').value.trim() } : {}),
   };
   if (!scenario.name) return;
-  await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim() } });
+  await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim(), name: scenario.name, part: scenario.part || '' } });
   const res = await ask({ type: 'panel-start', scenario });
   if (res?.error) { $('err').textContent = res.error; return; }
   // Recording started; if the device video didn't, say why (and stay open to read it).
