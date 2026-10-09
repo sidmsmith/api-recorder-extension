@@ -30,7 +30,10 @@
   .cp { display: flex; gap: 6px; }
   .cp button { white-space: nowrap; }
   .ok { color: var(--green); font-weight: 600; margin-top: 6px; min-height: 16px; }
-  button.link { border: 0; background: none; padding: 0; color: #1a73e8; font-weight: 600; font-size: 12px; text-decoration: underline; cursor: pointer; }
+  .framed { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+  .framed[hidden] { display: none; }
+  .framed { margin: 0 0 6px !important; }
+  .framed button { padding: 5px 10px; font-size: 12px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -39,6 +42,10 @@
   <h1><img src="icons/icon32.png" alt="">API Recorder</h1>
 
   <form id="startForm" hidden>
+    <div class="framed" id="framedRow" hidden>
+      <span>This tab is framed: <b id="framedDevice"></b></span>
+      <button type="button" id="unframe">Remove the frame</button>
+    </div>
     <label for="name">Scenario name</label>
     <input id="name" required maxlength="80" placeholder="e.g. Blind Receipt – create ASN" autocomplete="off">
     <label for="part">Part <span class="meta">(optional – a scenario recorded in parts)</span></label>
@@ -78,7 +85,6 @@
     <textarea id="notes" maxlength="500" placeholder="What this scenario shows, starting point…"></textarea>
     <button type="submit" class="primary">● Start recording</button>
     <p class="hint">Records this tab (and tabs it opens) until you stop. Files go to Downloads\<span id="folder"></span>.</p>
-    <p class="hint" id="framedRow" hidden>This tab is framed (<span id="framedDevice"></span>). <button type="button" id="unframe" class="link">Remove the frame</button></p>
     <div class="err" id="err"></div>
   </form>
 

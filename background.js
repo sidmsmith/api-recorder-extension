@@ -819,7 +819,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // may be a window of its own, which would otherwise count as active).
         const { panelTabId } = await chrome.storage.session.get('panelTabId');
         await chrome.storage.session.remove('panelTabId');
-        let tab = panelTabId !== undefined ? await chrome.tabs.get(panelTabId).catch(() => null) : null;
+        // The panel's own window's tab first; a panel in a window of its own: the tab it was opened for.
+        const want = msg.tabId ?? panelTabId;
+        let tab = want !== undefined ? await chrome.tabs.get(want).catch(() => null) : null;
         if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         // A device chosen: Device Frame opens the page in it (its own window, sized and placed,
         // toolbar hidden) and the recording happens there - no resizing by hand.
@@ -835,7 +837,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case 'panel-frame': {
         // Is the tab the panel would record framed (and in which device)? Or remove the frame.
         const { panelTabId } = await chrome.storage.session.get('panelTabId');
-        let tab = panelTabId !== undefined ? await chrome.tabs.get(panelTabId).catch(() => null) : null;
+        const want = msg.tabId ?? panelTabId;
+        let tab = want !== undefined ? await chrome.tabs.get(want).catch(() => null) : null;
         if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         if (!tab) return { framed: false };
         if (msg.unframe) return videoSend('unframe', tab.id);

@@ -3,8 +3,20 @@
 // checkpoints, Stop & save. The recording itself runs in background.js.
 
 const $ = (id) => document.getElementById(id);
+// Built into Demo Scenario Recorder (the panel is rec/popup.html): its name and icon.
+if (location.pathname.includes('/rec/')) {
+  const h1 = document.querySelector('h1');
+  h1.querySelector('img').src = '../icons/icon32.png';
+  h1.lastChild.textContent = chrome.runtime.getManifest().name;
+}
 const TIER_NAMES = { gold: 'Gold / Base', standard: 'Standard', custom: 'Custom' };
 const ask = async (msg) => (await chrome.runtime.sendMessage(msg).catch(() => null)) || {};
+// The tab this panel is for: the active tab of its window (a panel opened in a window of
+// its own, by the shortcut, has none - the background then knows which tab it was for).
+async function panelTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
+  return tab && /^https?:/i.test(tab.url || '') ? tab.id : undefined;
+}
 let timer;
 
 async function show() {
@@ -28,14 +40,14 @@ async function showForm() {
   $('customerRow').hidden = $('tier').value !== 'custom';
   $('name').focus();
   // A framed tab: say so, and offer to take the frame off (the icon is ours when built in).
-  const f = await ask({ type: 'panel-frame' });
+  const f = await ask({ type: 'panel-frame', tabId: await panelTab() });
   $('framedRow').hidden = !f.framed;
   $('framedDevice').textContent = f.device ? DEVICE_NAMES[f.device] || f.device : '';
 }
 
 const DEVICE_NAMES = { motoG4: 'Phone – Moto G4', desktop720: 'Desktop 1280×720', desktop: 'Desktop – fit the screen' };
 $('unframe').addEventListener('click', async () => {
-  await ask({ type: 'panel-frame', unframe: true });
+  await ask({ type: 'panel-frame', unframe: true, tabId: await panelTab() });
   window.close();
 });
 
@@ -87,7 +99,7 @@ $('startForm').addEventListener('submit', async (e) => {
   };
   if (!scenario.name) return;
   await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim(), name: scenario.name, part: scenario.part || '', device: $('device').value } });
-  const res = await ask({ type: 'panel-start', scenario });
+  const res = await ask({ type: 'panel-start', scenario, tabId: await panelTab() });
   if (res?.error) { $('err').textContent = res.error; return; }
   // Recording started; if the device video didn't, say why (and stay open to read it).
   if (res?.video && !res.video.ok && res.video.error !== 'not-framed') {
