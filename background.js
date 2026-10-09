@@ -73,7 +73,7 @@ async function videoStart(tabId) {
   const res = (await videoSend('start', tabId, {
     name: s.scenario.part ? `${s.scenario.name} - ${s.scenario.part}` : s.scenario.name, folder: s.folder, idleMs: Math.max(0, Number(s.settings.videoIdleSkip) || 0) * 1000,
   })) ?? { ok: false, error: 'no answer' };
-  if (session === s) s.video = res;
+  if (session === s) { s.video = res; showBadge(); }
   return res;
 }
 
@@ -93,8 +93,9 @@ function showBadge() {
   const n = session.done.length;
   chrome.action.setBadgeBackgroundColor({ color: '#d93025' });
   chrome.action.setBadgeTextColor?.({ color: '#ffffff' });
-  chrome.action.setBadgeText({ text: n === 0 ? 'REC' : n > 999 ? '999+' : String(n) });
-  chrome.action.setTitle({ title: `API Recorder: recording, ${n} call${n === 1 ? '' : 's'} so far. Click to stop and save the HAR file.` });
+  const noVideo = session.video && !session.video.ok && session.video.error !== 'not-framed';
+  chrome.action.setBadgeText({ text: noVideo ? 'V!' : n === 0 ? 'REC' : n > 999 ? '999+' : String(n) });
+  chrome.action.setTitle({ title: `API Recorder: recording, ${n} call${n === 1 ? '' : 's'} so far.${noVideo ? ` The Device Frame video didn't start (${session.video.error}) - press Alt+Shift+V in the device window.` : ''} Click to stop and save the HAR file.` });
 }
 
 // A short message on the icon (e.g. a page that can't be recorded).
@@ -259,17 +260,14 @@ function pageTracker(binding) {
   // recorder takes a "before" picture, so the screen you clicked in shows the option.
   // Only scrolling you did (mouse wheel, touch, scrolling keys), not the app's own (e.g. a
   // section scrolled into view after a click).
-  let userInput = 0;
+  // The wheel / touch / keys themselves start it: lists inside web components (e.g. Ionic's
+  // dropdowns) scroll in their own shadow DOM, whose scroll events never reach the page.
   let scrollTimer;
-  const SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End| )$/;
-  addEventListener('wheel', () => { userInput = Date.now(); }, { capture: true, passive: true });
-  addEventListener('touchmove', () => { userInput = Date.now(); }, { capture: true, passive: true });
-  addEventListener('keydown', (e) => { if (SCROLL_KEYS.test(e.key)) userInput = Date.now(); }, { capture: true, passive: true });
-  addEventListener('scroll', () => {
-    if (Date.now() - userInput > 1500) return;
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => report({ kind: 'scrolled' }), 400);
-  }, { capture: true, passive: true });
+  const SCROLL_KEYS = /^(Arrow(Up|Down)|Page(Up|Down)|Home|End)$/;
+  const scrolling = () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(() => report({ kind: 'scrolled' }), 450); };
+  addEventListener('wheel', scrolling, { capture: true, passive: true });
+  addEventListener('touchmove', scrolling, { capture: true, passive: true });
+  addEventListener('keydown', (e) => { if (SCROLL_KEYS.test(e.key) && !fieldOf(e)) scrolling(); }, { capture: true, passive: true });
   addEventListener('focusout', (e) => {
     const el = fieldOf(e);
     if (!el || before.get(el) === el.value || /^(button|submit|checkbox|radio|reset|image|file)$/i.test(el.type)) return;
@@ -637,6 +635,7 @@ async function stop(reason) {
   const scenario = s.scenario ? { ...s.scenario, recordedAt: new Date(s.startedAt).toISOString() } : null;
   const har = buildHar(s.done, [...s.pages.values()], s.settings, chrome.runtime.getManifest().version, s.actions, scenario);
   // Which copy of the extension recorded, and the screenshot options it used (troubleshooting).
+  if (s.video) har.log._video = s.video;    // the Device Frame video: started, or why not
   if (s.shotSettings) har.log._screenshots = {
     ...s.shotSettings, extensionId: chrome.runtime.id,
     ...(s.slowCalls.size ? { waitedFor: [...s.slowCalls] } : {}),         // the step's own slow calls
