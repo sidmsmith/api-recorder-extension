@@ -209,6 +209,7 @@ function combo(input) {
       e.preventDefault();
       input.value = items[active].firstChild.textContent;
       hide();
+      input.dispatchEvent(new Event('change'));
     } else if (e.key === 'Escape' && !list.hidden) {
       e.preventDefault();
       hide();
@@ -216,3 +217,11 @@ function combo(input) {
   });
 }
 document.querySelectorAll('input[data-options]').forEach(combo);
+
+// The part decides the device: the web-UI parts (Preview, Validation) record on the desktop,
+// the WM Mobile part on the phone. Other parts leave the device as it is.
+const PART_DEVICE = { preview: 'desktop720', validation: 'desktop720', 'wm mobile': 'motoG4' };
+$('part').addEventListener('change', () => {
+  const device = PART_DEVICE[$('part').value.trim().toLowerCase()];
+  if (device && [...$('device').options].some((o) => o.value === device)) $('device').value = device;
+});
