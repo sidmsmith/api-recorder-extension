@@ -35,6 +35,16 @@
   .framed { margin: 0 0 6px !important; }
   .framed button { padding: 5px 10px; font-size: 12px; }
   [hidden] { display: none !important; }
+  /* Combo box: type any value, or pick from the full list (▾ or a click in the box). */
+  .combo { position: relative; }
+  .combo input { padding-right: 26px; }
+  .combo .cbtn { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 24px; padding: 0; border: 0; background: transparent; color: var(--muted); font-weight: 400; cursor: pointer; }
+  .combo ul { position: absolute; right: 0; top: 100%; z-index: 10; min-width: 100%; width: max-content; max-width: 296px; box-sizing: border-box;
+    margin: 2px 0 0; padding: 4px 0; list-style: none; max-height: 250px; overflow-y: auto; overflow-x: hidden;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+  .combo li { padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+  .combo li:hover, .combo li.on { background: var(--field); }
+  .combo li.cur { font-weight: 600; }
 </style>
 </head>
 <body>
@@ -49,8 +59,7 @@
     <label for="name">Scenario name</label>
     <input id="name" required maxlength="80" placeholder="e.g. Blind Receipt – create ASN" autocomplete="off">
     <label for="part">Part <span class="meta">(optional – a scenario recorded in parts)</span></label>
-    <input id="part" list="parts" maxlength="40" placeholder="e.g. Item preview, WM Mobile, Locked iLPN" autocomplete="off">
-    <datalist id="parts"><option>Preview</option><option>WM Mobile</option><option>Validation</option></datalist>
+    <input id="part" data-options="Preview|WM Mobile|Validation" maxlength="40" placeholder="e.g. Item preview, WM Mobile, Locked iLPN" autocomplete="off">
     <label for="device">Device <span class="meta">(Device Frame opens the page in it - sized and placed)</span></label>
     <select id="device">
       <option value="">The tab as it is</option>
@@ -69,12 +78,7 @@
       </div>
       <div>
         <label for="area">Area</label>
-        <input id="area" list="areas" maxlength="40" placeholder="Receiving">
-        <datalist id="areas">
-          <option>Receiving</option><option>Putaway</option><option>Inventory</option><option>Replenishment</option>
-          <option>Picking</option><option>Packing</option><option>Shipping</option><option>Cycle Count</option>
-          <option>Configuration</option><option>Other</option>
-        </datalist>
+        <input id="area" data-options="Receiving|Putaway|Inventory Management|Picking|Packing|Loading|Shipping|Wave Management" maxlength="40" placeholder="Receiving" autocomplete="off">
       </div>
     </div>
     <div id="customerRow" hidden>

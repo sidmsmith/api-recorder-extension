@@ -131,3 +131,54 @@ $('stop').addEventListener('click', async () => {
 });
 
 show();
+
+// Combo boxes (Area, Part): any value can be typed; the ▾ button or a click in the box
+// shows the whole list (a <datalist> would only show entries matching what's already in
+// the box - with "Putaway" filled in, nothing else). Typing narrows the list.
+function combo(input) {
+  const options = input.dataset.options.split('|');
+  const wrap = document.createElement('div');
+  wrap.className = 'combo';
+  input.replaceWith(wrap);
+  const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'cbtn', textContent: '▾', tabIndex: -1, title: 'Show the list' });
+  const list = document.createElement('ul');
+  list.hidden = true;
+  wrap.append(input, btn, list);
+  let active = -1;
+  const show = (all) => {
+    const q = input.value.trim().toLowerCase();
+    const shown = all || !q ? options : options.filter((o) => o.toLowerCase().includes(q));
+    list.replaceChildren(...shown.map((o) => {
+      const li = document.createElement('li');
+      li.textContent = o;
+      if (o.toLowerCase() === q) li.className = 'cur';
+      li.addEventListener('mousedown', (e) => { e.preventDefault(); input.value = o; hide(); input.dispatchEvent(new Event('change')); });
+      return li;
+    }));
+    active = -1;
+    list.hidden = !shown.length;
+  };
+  const hide = () => { list.hidden = true; active = -1; };
+  btn.addEventListener('mousedown', (e) => { e.preventDefault(); if (list.hidden) { input.focus(); show(true); } else hide(); });
+  input.addEventListener('click', () => show(true));
+  input.addEventListener('input', () => show(false));
+  input.addEventListener('blur', hide);
+  input.addEventListener('keydown', (e) => {
+    const items = [...list.children];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (list.hidden) return show(true);
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items.forEach((li, i) => li.classList.toggle('on', i === active));
+      items[active]?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && !list.hidden && active >= 0) {
+      e.preventDefault();
+      input.value = items[active].textContent;
+      hide();
+    } else if (e.key === 'Escape' && !list.hidden) {
+      e.preventDefault();
+      hide();
+    }
+  });
+}
+document.querySelectorAll('input[data-options]').forEach(combo);
