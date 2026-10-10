@@ -32,7 +32,7 @@ function span(ms) {
 
 // What a step says: Clicked "Blind Receipt", Pressed Enter in "ASN" (0000123), Opened "WM Mobile".
 function stepText(st) {
-  if (st.kind === 'enter') return `Pressed Enter in “${st.label || 'a field'}”${st.value ? ` (${st.value})` : ''}`;
+  if (st.kind === 'enter') return `${st.via && st.via !== 'Enter' ? `Clicked “${st.via}” for` : 'Pressed Enter in'} “${st.label || 'a field'}”${st.value ? ` (${st.value})` : ''}`;
   if (st.kind === 'load') return `Opened “${st.screen || 'a page'}”`;
   if (st.kind === 'key') return `Pressed ${st.label || 'a key'}`;
   if (st.kind === 'start') return 'Recording started';

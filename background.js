@@ -253,8 +253,15 @@ function pageTracker(binding, opts = {}) {
     // Clicking into a text box only places the cursor: Enter or the typed value is the step.
     if (!el || (el.matches('textarea, input') && !/^(button|submit|checkbox|radio|reset|image|file|color|range)$/i.test(el.type))) return;
     const near = el.matches('button, ion-button, [role=button], input[type=button], input[type=submit]') ? fieldNear(el) : null;
-    const field = near ? (() => { const label = fieldLabel(near); return { label, value: isSecret(near, label) ? '' : clean(near.value, 40) }; })() : null;
-    report({ kind: 'click', label: labelOf(el), target: describe(el), ...(field ? { field } : {}) });
+    if (near) {
+      // A button beside its one field (WM Mobile's GO, OK, Search) does what Enter in the
+      // field does: the same step - the field and its value - with the button as "via".
+      const label = fieldLabel(near);
+      before.set(near, near.value);
+      report({ kind: 'enter', label, value: isSecret(near, label) ? '' : clean(near.value, 40), via: labelOf(el), target: describe(el) });
+      return;
+    }
+    report({ kind: 'click', label: labelOf(el), target: describe(el) });
   }, true);
   // Field values: remember the value when a field gets focus, report it when you leave if it changed.
   const before = new WeakMap();
@@ -302,7 +309,7 @@ function pageTracker(binding, opts = {}) {
       if (!(el instanceof Element)) return;
       const label = fieldLabel(el);
       before.set(el, el.value);
-      report({ kind: 'enter', label, value: isSecret(el, label) ? '' : clean(el.value, 40) });
+      report({ kind: 'enter', label, value: isSecret(el, label) ? '' : clean(el.value, 40), via: 'Enter' });
       return;
     }
     // Function keys and shortcuts (Ctrl/Alt + key) are steps too.
@@ -353,6 +360,7 @@ function onAction(tabId, payload) {
     tabId, kind: a.kind, label: a.kind === 'load' ? '' : a.label, value: a.value || '', title: a.title || '', t: a.t,
     ...(a.target ? { target: a.target } : {}),
     ...(a.field ? { field: a.field } : {}),
+    ...(a.via ? { via: a.via } : {}),
   });
   if (STEP_KINDS.includes(a.kind)) {
     claimBefore(tabId, a.t);

@@ -101,11 +101,13 @@ function stepsFrom(actions) {
       const kind = STEP_KINDS.includes(a.kind) ? a.kind : 'start';
       current = {
         n: steps.length + 1, t: a.t, kind, label: kind === 'start' ? '' : a.label || '', value: kind === 'start' ? '' : a.value || '',
-        screen: a.title || '', tabId: a.tabId, ...(a.target ? { target: a.target } : {}), ...(a.field ? { field: a.field } : {}), inputs: [], checkpoints: [],
+        screen: a.title || '', tabId: a.tabId, ...(a.target ? { target: a.target } : {}), ...(a.field ? { field: a.field } : {}), ...(a.via ? { via: a.via } : {}), inputs: [], checkpoints: [],
       };
-      // A value already shown as the field beside the clicked button isn't repeated.
+      // A value already shown as the step's own (the field it was entered in, or beside the
+      // clicked button) isn't repeated.
+      const own = a.field || (kind === 'enter' ? { label: a.label || '', value: a.value || '' } : null);
       if (kind !== 'start') {
-        current.inputs.push(...typed.filter((x) => !(a.field && x.label === a.field.label && x.value === a.field.value)));
+        current.inputs.push(...typed.filter((x) => !(own && x.label === own.label && x.value === own.value)));
         typed = [];
       }
       steps.push(current);
