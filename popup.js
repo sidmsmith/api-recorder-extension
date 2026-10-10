@@ -218,9 +218,10 @@ function combo(input) {
 }
 document.querySelectorAll('input[data-options]').forEach(combo);
 
-// The part decides the device: the web-UI parts (Preview, Validation) record on the desktop,
-// the WM Mobile part on the phone. Other parts leave the device as it is.
-const PART_DEVICE = { preview: 'desktop720', validation: 'desktop720', 'wm mobile': 'motoG4' };
+// The part decides the device: Preview and Validation record on the desktop (web UI), the
+// Execution part on the phone by default (WM Mobile - pick a desktop device when the
+// execution is in the web UI). Other parts leave the device as it is.
+const PART_DEVICE = { preview: 'desktop720', validation: 'desktop720', execution: 'motoG4', 'wm mobile': 'motoG4' };
 $('part').addEventListener('change', () => {
   const device = PART_DEVICE[$('part').value.trim().toLowerCase()];
   if (device && [...$('device').options].some((o) => o.value === device)) $('device').value = device;
