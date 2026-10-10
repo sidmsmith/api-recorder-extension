@@ -40,11 +40,15 @@
   .combo input { padding-right: 26px; }
   .combo .cbtn { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 24px; padding: 0; border: 0; background: transparent; color: var(--muted); font-weight: 400; cursor: pointer; }
   .combo ul { position: absolute; right: 0; top: 100%; z-index: 10; min-width: 100%; width: max-content; max-width: 296px; box-sizing: border-box;
-    margin: 2px 0 0; padding: 4px 0; list-style: none; max-height: 250px; overflow-y: auto; overflow-x: hidden;
+    margin: 2px 0 0; padding: 4px 0; list-style: none; max-height: 300px; overflow-y: auto; overflow-x: hidden;
     background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.18); }
   .combo li { padding: 5px 10px; cursor: pointer; white-space: nowrap; }
   .combo li:hover, .combo li.on { background: var(--field); }
   .combo li.cur { font-weight: 600; }
+  .combo li.saved { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .combo li.saved:first-of-type, .combo li:not(.saved) + li.saved { border-top: 1px solid var(--line); margin-top: 3px; padding-top: 6px; }
+  .combo .forget { border: 0; background: transparent; padding: 0 2px; color: var(--muted); font-weight: 400; cursor: pointer; }
+  .combo .forget:hover { color: var(--red); }
 </style>
 </head>
 <body>

@@ -99,6 +99,7 @@ $('startForm').addEventListener('submit', async (e) => {
   };
   if (!scenario.name) return;
   await chrome.storage.local.set({ panel: { tier: scenario.tier, area: scenario.area, customer: $('customer').value.trim(), name: scenario.name, part: scenario.part || '', device: $('device').value } });
+  await rememberComboValues();
   const res = await ask({ type: 'panel-start', scenario, tabId: await panelTab() });
   if (res?.error) { $('err').textContent = res.error; return; }
   // Recording started; if the device video didn't, say why (and stay open to read it).
@@ -134,9 +135,28 @@ show();
 
 // Combo boxes (Area, Part): any value can be typed; the ▾ button or a click in the box
 // shows the whole list (a <datalist> would only show entries matching what's already in
-// the box - with "Putaway" filled in, nothing else). Typing narrows the list.
+// the box - with "Putaway" filled in, nothing else). Typing narrows the list. A new value
+// is remembered when a recording starts (comboValues in local storage) and listed after
+// the built-in ones, with × to forget it.
+const COMBO_SAVED_MAX = 30;
+let comboSaved = {};          // { area: [...], part: [...] }
+const comboReady = chrome.storage.local.get('comboValues').then((r) => { comboSaved = r.comboValues || {}; }, () => {});
+const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+async function rememberComboValues() {
+  await comboReady;
+  for (const input of document.querySelectorAll('input[data-options]')) {
+    const v = input.value.trim();
+    const built = input.dataset.options.split('|');
+    if (!v || built.some((o) => same(o, v))) continue;
+    comboSaved[input.id] = [v, ...(comboSaved[input.id] || []).filter((o) => !same(o, v))].slice(0, COMBO_SAVED_MAX);
+  }
+  await chrome.storage.local.set({ comboValues: comboSaved });
+}
+
 function combo(input) {
-  const options = input.dataset.options.split('|');
+  const built = input.dataset.options.split('|');
+  const saved = () => (comboSaved[input.id] || []).filter((o) => !built.some((b) => same(b, o))).sort((a, b) => a.localeCompare(b));
   const wrap = document.createElement('div');
   wrap.className = 'combo';
   input.replaceWith(wrap);
@@ -147,11 +167,25 @@ function combo(input) {
   let active = -1;
   const show = (all) => {
     const q = input.value.trim().toLowerCase();
+    const mine = saved();
+    const options = [...built, ...mine];
     const shown = all || !q ? options : options.filter((o) => o.toLowerCase().includes(q));
     list.replaceChildren(...shown.map((o) => {
       const li = document.createElement('li');
-      li.textContent = o;
-      if (o.toLowerCase() === q) li.className = 'cur';
+      li.append(Object.assign(document.createElement('span'), { textContent: o }));
+      if (o.toLowerCase() === q) li.classList.add('cur');
+      if (mine.includes(o)) {
+        li.classList.add('saved');
+        const x = Object.assign(document.createElement('button'), { type: 'button', className: 'forget', textContent: '×', title: `Forget "${o}"`, tabIndex: -1 });
+        x.addEventListener('mousedown', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          comboSaved[input.id] = (comboSaved[input.id] || []).filter((v) => v !== o);
+          await chrome.storage.local.set({ comboValues: comboSaved });
+          show(all);
+        });
+        li.append(x);
+      }
       li.addEventListener('mousedown', (e) => { e.preventDefault(); input.value = o; hide(); input.dispatchEvent(new Event('change')); });
       return li;
     }));
@@ -173,7 +207,7 @@ function combo(input) {
       items[active]?.scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' && !list.hidden && active >= 0) {
       e.preventDefault();
-      input.value = items[active].textContent;
+      input.value = items[active].firstChild.textContent;
       hide();
     } else if (e.key === 'Escape' && !list.hidden) {
       e.preventDefault();
