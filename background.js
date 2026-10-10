@@ -138,6 +138,7 @@ async function start(tab, scenario = null) {
     scenario,             // { name, tier, area, customer, notes } in scenario mode
     shots: [],            // screenshots: { tabId, t (the step's action), data }
     befores: [],          // "before" screenshots (after you typed): { tabId, t (the step's action), data }
+    typingStarts: [],     // { tabId, t }: the first key of each bit of typing (see afterMidTyping)
     pendingBefore: new Map(), // tabId -> the "before" picture taken after typing, waiting for its step
     shotTimers: new Map(), // tabId -> the step waiting for its screenshot
     settings: await getSettings(),
@@ -279,6 +280,7 @@ function pageTracker(binding, opts = {}) {
   };
   addEventListener('input', (e) => {
     if (!fieldOf(e)) return;
+    if (!dirty) report({ kind: 'typingStart' });   // the first key: a picture after it shows the typing
     dirty = true;
     clearTimeout(typingTimer);
     typingTimer = setTimeout(flushTyping, 150);
@@ -354,6 +356,7 @@ function onAction(tabId, payload) {
   try { a = JSON.parse(payload); } catch { return; }
   if (a.title) session.screens.set(tabId, a.title);
   if (a.kind === 'screen') return;
+  if (a.kind === 'typingStart') { session.typingStarts.push({ tabId, t: a.t }); return; }
   if (a.kind === 'typing' || a.kind === 'scrolled') { takeBefore(tabId); return; }
   // A page load becomes a step named after the screen ("Opened …").
   session.actions.push({
@@ -542,8 +545,9 @@ function claimBefore(tabId, actionT) {
 }
 
 function takeShot(s, tabId, t, opts = {}) {
+  const takenAt = Date.now();
   const job = capture(s, tabId, opts)
-    .then((shot) => { if (shot) s.shots.push({ tabId, t, ...shot }); })
+    .then((shot) => { if (shot) s.shots.push({ tabId, t, takenAt, ...shot }); })
     .catch(() => { /* tab closed or hidden */ });
   s.pending.add(job);
   job.finally(() => s.pending.delete(job));
@@ -701,6 +705,11 @@ async function stop(reason) {
     if (step.noEffect && same) continue;
     if (step.noEffect) delete step.noEffect;
     shots[step.n] = shot;
+    // Typing started between the step and its picture (e.g. the menu opened, then its search
+    // typed into before the picture): the picture shows the typing. Seconds from the first
+    // key to the picture - the import replaces it with the video frame from before the typing.
+    const typed = s.typingStarts.find((x) => x.tabId === step.tabId && x.t > step.t && x.t < shot.takenAt);
+    if (typed) step.afterMidTyping = Math.round((shot.takenAt - typed.t) / 100) / 10 || 0.1;
   }
   const befores = {};
   for (const shot of s.befores) {
