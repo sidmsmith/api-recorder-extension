@@ -153,6 +153,14 @@ async function start(tab, scenario = null) {
     flash('!', `API Recorder: couldn't start recording (${e.message || e})`);
     return `Couldn't start recording: ${e.message || e}`;
   }
+  // Scenario mode: a picture of the screen you start on - the first step's "before" picture
+  // (a recording that starts on an open page has no page load to show it).
+  if (session.scenario && session.settings.screenshots) {
+    const s = session;
+    s.startShot = capture(s, tab.id, { before: true }).then((shot) => (shot ? { tabId: tab.id, ...shot } : null), () => null);
+    s.pending.add(s.startShot);
+    s.startShot.finally(() => s.pending.delete(s.startShot));
+  }
   // The service worker must stay awake while recording: quiet periods would
   // otherwise let Chrome stop it and lose what was captured.
   keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20000);
@@ -716,6 +724,11 @@ async function stop(reason) {
     const step = har.log._steps.find((st) => st.t === shot.t && st.tabId === shot.tabId);
     if (step && !befores[step.n]) befores[step.n] = shot;
   }
+  // The screen you started on: the first step's "before" picture, unless that step is a page
+  // load (its own picture shows the page) or it has a "before" picture already (you typed).
+  const startShot = s.startShot ? await s.startShot : null;
+  const firstStep = har.log._steps.find((st) => st.kind !== 'start');
+  if (startShot && firstStep && firstStep.kind !== 'load' && firstStep.tabId === startShot.tabId && !befores[firstStep.n]) befores[firstStep.n] = startShot;
   // Scenario mode: Downloads/<folder>/<tier>-<name>_<timestamp>/recording.har, .html, step-01.jpg …
   // Otherwise: API_<host>_<timestamp>.har / .html.
   const folder = s.folder ? `${s.folder}/` : '';
