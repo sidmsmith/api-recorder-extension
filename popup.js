@@ -45,7 +45,7 @@ async function showForm() {
   $('framedDevice').textContent = f.device ? DEVICE_NAMES[f.device] || f.device : '';
 }
 
-const DEVICE_NAMES = { motoG4: 'Phone – Moto G4', desktop720: 'Desktop 1280×720', desktop: 'Desktop – fit the screen' };
+const DEVICE_NAMES = { motoG4: 'Phone – Moto G4', desktop720: 'Desktop 1280×720', desktop900: 'Desktop 1600×900', desktop: 'Desktop – fit the screen' };
 $('unframe').addEventListener('click', async () => {
   await ask({ type: 'panel-frame', unframe: true, tabId: await panelTab() });
   window.close();
