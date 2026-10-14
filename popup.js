@@ -19,7 +19,23 @@ async function panelTab() {
 }
 let timer;
 
+// Chrome didn't use our file names (another extension renames downloads): say so, with the fix.
+async function showDownloadWarning() {
+  const { downloadWarning: w } = await chrome.storage.local.get('downloadWarning');
+  const box = $('dlWarn');
+  if (!w || Date.now() - w.at > 7 * 24 * 3600 * 1000) { box.hidden = true; return; }
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  box.innerHTML = `<b>Recordings are not reaching the inbox folder.</b> Chrome saved "${esc(w.wanted)}" as
+    "${esc(w.got)}", loose in Downloads: another extension is naming downloads
+    ${w.suspects?.length ? `(<b>${w.suspects.map(esc).join(', ')}</b>)` : ''}. Turn it off at chrome://extensions
+    (or reload this extension there), then record again.<br><button type="button" id="dlWarnOk">Dismiss</button>
+    <span class="hint">${esc(new Date(w.at).toLocaleString())}</span>`;
+  box.hidden = false;
+  $('dlWarnOk').onclick = async () => { await chrome.storage.local.remove('downloadWarning'); box.hidden = true; };
+}
+
 async function show() {
+  showDownloadWarning();
   const status = await ask({ type: 'panel-status' });
   $('startForm').hidden = status.recording;
   $('recording').hidden = !status.recording;

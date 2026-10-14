@@ -35,6 +35,9 @@
   .framed { margin: 0 0 6px !important; }
   .framed button { padding: 5px 10px; font-size: 12px; }
   [hidden] { display: none !important; }
+  .dlwarn { margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--red); border-radius: 6px; background: color-mix(in srgb, var(--red) 10%, var(--bg)); font-size: 12px; }
+  .dlwarn b { color: var(--red); }
+  .dlwarn button { margin-top: 6px; padding: 4px 10px; font-size: 12px; }
   /* Combo box: type any value, or pick from the full list (▾ or a click in the box). */
   .combo { position: relative; }
   .combo input { padding-right: 26px; }
@@ -53,6 +56,7 @@
 </head>
 <body>
 <main>
+  <div id="dlWarn" class="dlwarn" hidden></div>
   <h1><img src="icons/icon32.png" alt="">API Recorder</h1>
 
   <form id="startForm" hidden>

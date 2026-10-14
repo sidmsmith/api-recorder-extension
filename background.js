@@ -58,7 +58,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 // and saved in its folder, skipping idle time; stopping stops it too. Device
 // Frame is found by name (its id depends on where it's loaded from).
 async function deviceFrameId() {
-  const all = await chrome.management.getAll().catch(() => []);
+  const all = chrome.management?.getAll ? await chrome.management.getAll().catch(() => []) : [];
   return all.find((e) => e.enabled && e.type === 'extension' && /^Device Frame\b/i.test(e.name))?.id ?? null;
 }
 
@@ -790,6 +790,44 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+// Is Chrome using our names? Chrome asks only ONE extension to name downloads (the most
+// recently installed with a onDeterminingFilename listener); another one (e.g. an image
+// downloader, after it updates) takes that over and every file is saved as "download",
+// "download (1).png"... loose in Downloads. Check each of our files' final name, and warn.
+const baseName = (f) => String(f || '').split(/[\\/]/).pop();
+const sameName = (got, wanted) => baseName(got).replace(/ \(\d+\)(?=\.[^.]*$|$)/, '') === baseName(wanted);
+function watchName(id, wanted) {
+  if (!id || !wanted) return;
+  let tries = 0;
+  const check = async () => {
+    const [item] = await chrome.downloads.search({ id }).catch(() => []);
+    if (!item?.filename) { if (++tries < 40) setTimeout(check, 500); return; }
+    if (!sameName(item.filename, wanted)) reportNaming(baseName(item.filename), wanted);
+  };
+  setTimeout(check, 300);
+}
+let namingWarned = 0;
+async function reportNaming(got, wanted) {
+  const all = chrome.management?.getAll ? await chrome.management.getAll().catch(() => []) : [];
+  const frameId = await deviceFrameId().catch(() => null);
+  const suspects = all.filter((x) => x.enabled && x.type === 'extension' && x.id !== chrome.runtime.id && x.id !== frameId
+    && (x.permissions || []).includes('downloads')).map((x) => x.name);
+  const warning = { at: Date.now(), got, wanted: baseName(wanted), suspects };
+  await chrome.storage.local.set({ downloadWarning: warning });
+  console.warn('Recorder: Chrome did not use our file name', warning);
+  if (Date.now() - namingWarned < 60000) return;      // once per recording, not per file
+  namingWarned = Date.now();
+  chrome.action.setBadgeBackgroundColor({ color: '#d93025' });
+  chrome.action.setBadgeText({ text: '!' });
+  chrome.action.setTitle({ title: `Files were NOT saved to the inbox folder: Chrome named them "${got}". `
+    + `Another extension renames downloads${suspects.length ? ` (${suspects.join(', ')})` : ''} - turn it off at chrome://extensions, or reload this extension. Open the panel for details.` });
+}
+// Device Frame's files (videos, screenshots) we name: watch them too.
+chrome.downloads.onCreated.addListener((item) => {
+  const named = announced.get(urlKey(item.url));
+  if (named) watchName(item.id, named);
+});
+
 chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
   const named = announced.get(urlKey(item.url));
   if (named) {
@@ -812,7 +850,8 @@ async function download(content, filename, type = 'application/octet-stream', is
   // octet-stream for text, so Chrome keeps the .har extension (with JSON it renames it .json).
   const url = `data:${type};base64,${data}`;
   nextFilenames.push(filename);
-  await chrome.downloads.download({ url, filename, conflictAction: 'uniquify' });
+  const id = await chrome.downloads.download({ url, filename, conflictAction: 'uniquify' });
+  watchName(id, filename);
 }
 
 // "Scenario name" folder: <tier>-<name>[_<part>]_<YYYYMMDDHHMMSS>, only letters, digits and dashes.
